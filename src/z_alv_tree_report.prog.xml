@@ -80,7 +80,7 @@
       <MODAL>D</MODAL>
       <ACTCODE>000001</ACTCODE>
       <PFKCODE>000001</PFKCODE>
-      <BUTCODE>0001</BUTCODE>
+      <BUTCODE>0002</BUTCODE>
       <INT_NOTE>Standard for General List Output</INT_NOTE>
      </RSMPE_STAT>
     </STA>
@@ -1031,6 +1031,13 @@
       <OBJ_TYPE>B</OBJ_TYPE>
       <OBJ_CODE>000001</OBJ_CODE>
       <SUB_CODE>0001</SUB_CODE>
+      <MODAL>D</MODAL>
+      <INT_NOTE>Standard for General List Output</INT_NOTE>
+     </RSMPE_ATRT>
+     <RSMPE_ATRT>
+      <OBJ_TYPE>B</OBJ_TYPE>
+      <OBJ_CODE>000001</OBJ_CODE>
+      <SUB_CODE>0002</SUB_CODE>
       <MODAL>D</MODAL>
       <INT_NOTE>Standard for General List Output</INT_NOTE>
      </RSMPE_ATRT>

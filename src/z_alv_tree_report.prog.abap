@@ -3,7 +3,7 @@
 *&---------------------------------------------------------------------*
 *&
 *&---------------------------------------------------------------------*
-REPORT Z_ALV_TREE_REPORT.
+REPORT z_alv_tree_report.
 
 CLASS lcl_app DEFINITION FINAL.
   PUBLIC SECTION.
@@ -13,16 +13,16 @@ CLASS lcl_app DEFINITION FINAL.
 
   PRIVATE SECTION.
     TYPES: BEGIN OF ty_master,
-             master_id TYPE c LENGTH 5,
+             master_id TYPE c LENGTH 8,
              name      TYPE c LENGTH 30,
              category  TYPE c LENGTH 15,
              status    TYPE c LENGTH 10,
            END OF ty_master.
 
     TYPES: BEGIN OF ty_detail,
-             master_id TYPE c LENGTH 5,
+             master_id TYPE c LENGTH 8,
              item_no   TYPE n LENGTH 3,
-             item_text TYPE c LENGTH 40,
+             item_text TYPE lvc_value,
              amount    TYPE p LENGTH 10 DECIMALS 2,
              currency  TYPE c LENGTH 3,
            END OF ty_detail.
@@ -55,25 +55,55 @@ CLASS lcl_app IMPLEMENTATION.
   METHOD fill_test_data.
     DATA: ls_master TYPE ty_master,
           lv_index  TYPE i,
-          lv_amount TYPE p LENGTH 10 DECIMALS 2.
+          lv_amount TYPE p LENGTH 10 DECIMALS 2,
+          lv_monat  TYPE string.
 
     mt_master = VALUE #(
-      ( master_id = 'E0001' name = 'Anna Schmidt'  category = 'Vertrieb' status = 'AKTIV' )
-      ( master_id = 'E0002' name = 'Ben Wagner'    category = 'IT'       status = 'AKTIV' )
-      ( master_id = 'E0003' name = 'Clara Neumann' category = 'HR'       status = 'AKTIV' )
-      ( master_id = 'E0004' name = 'David Keller'  category = 'Finanz'   status = 'AKTIV' ) ).
+    ( master_id = '48291736' name = 'Anna Schmidt'  category = 'Vertrieb' status = 'AKTIV'   )
+    ( master_id = '90531427' name = 'Ben Wagner'    category = 'IT'       status = 'AKTIV'   )
+    ( master_id = '17645289' name = 'Clara Neumann' category = 'HR'       status = 'INAKTIV' )
+    ( master_id = '73402851' name = 'David Keller'  category = 'Finanz'   status = 'AKTIV'   )
+  ).
 
     CLEAR mt_detail.
     LOOP AT mt_master INTO ls_master.
       lv_index = sy-tabix.
       DO 12 TIMES.
         lv_amount = 2000 + ( ( lv_index * 217 + sy-index * 131 ) MOD 3001 ).
+        CASE sy-index.
+          WHEN 1.
+            lv_monat = 'Januar'.
+          WHEN 2.
+            lv_monat = 'Februar'.
+          WHEN 3.
+            lv_monat = 'März'.
+          WHEN 4.
+            lv_monat = 'April'.
+          WHEN 5.
+            lv_monat = 'Mai'.
+          WHEN 6.
+            lv_monat = 'Juni'.
+          WHEN 7.
+            lv_monat = 'Juli'.
+          WHEN 8.
+            lv_monat = 'August'.
+          WHEN 9.
+            lv_monat = 'September'.
+          WHEN 10.
+            lv_monat = 'Oktober'.
+          WHEN 11.
+            lv_monat = 'November'.
+          WHEN 12.
+            lv_monat = 'Dezember'.
+          WHEN OTHERS.
+            CLEAR lv_monat.
+        ENDCASE.
         APPEND VALUE ty_detail(
-          master_id = ls_master-master_id
-          item_no   = sy-index
-          item_text = |Gehalt Monat { sy-index WIDTH = 2 PAD = '0' }|
-          amount    = lv_amount
-          currency  = 'EUR' ) TO mt_detail.
+  master_id = ls_master-master_id
+  item_no   = sy-index
+  item_text = |Gehalt Monat { lv_monat } 2026|
+  amount    = lv_amount
+  currency  = 'EUR' ) TO mt_detail.
       ENDDO.
     ENDLOOP.
   ENDMETHOD.
@@ -88,7 +118,7 @@ CLASS lcl_app IMPLEMENTATION.
 
   METHOD pai_0100.
     CASE iv_ucomm.
-      WHEN 'BACK' OR 'EXIT' OR 'CANC' or '&F03'.
+      WHEN 'BACK' OR 'EXIT' OR 'CANC' OR '&F03'.
         LEAVE TO SCREEN 0.
     ENDCASE.
   ENDMETHOD.
@@ -100,24 +130,25 @@ CLASS lcl_app IMPLEMENTATION.
 
   METHOD get_fcat.
     rt_fcat = VALUE lvc_t_fcat(
-      ( fieldname = 'ITEM_TEXT' coltext = 'Position' outputlen = 40 )
+      ( fieldname = 'ITEM_TEXT' coltext = '' outputlen = 40 )
       ( fieldname = 'AMOUNT'    coltext = 'Betrag'   outputlen = 15 )
       ( fieldname = 'CURRENCY'  coltext = 'Whrg'     outputlen = 5 ) ).
   ENDMETHOD.
 
   METHOD build_tree.
-    DATA: ls_hhdr        TYPE treev_hhdr,
-          lt_fcat        TYPE lvc_t_fcat,
-          ls_tree_line   TYPE ty_tree_line,
-          ls_master      TYPE ty_master,
-          ls_detail      TYPE ty_detail,
+    DATA: ls_hhdr         TYPE treev_hhdr,
+          lt_fcat         TYPE lvc_t_fcat,
+          ls_tree_line    TYPE ty_tree_line,
+          ls_master       TYPE ty_master,
+          ls_detail       TYPE ty_detail,
           lv_master_key   TYPE lvc_nkey,
           lv_detail_key   TYPE lvc_nkey,
           lv_sum_amount   TYPE p LENGTH 10 DECIMALS 2,
-*          lv_master_key  TYPE lvc_nkey,
-*          lv_detail_key  TYPE lvc_nkey,
-*          lv_sum_amount  TYPE p LENGTH 10 DECIMALS 2,
           lv_sum_currency TYPE c LENGTH 3.
+
+    DATA: ls_node_layout TYPE lvc_s_layn,
+          lv_node_key    TYPE lvc_nkey,
+          lv_parent_key  TYPE lvc_nkey.
 
     lt_fcat = get_fcat( ).
 
@@ -137,6 +168,7 @@ CLASS lcl_app IMPLEMENTATION.
         it_fieldcatalog     = lt_fcat ).
 
     LOOP AT mt_master INTO ls_master.
+      "Summe bilden
       CLEAR: lv_sum_amount, lv_sum_currency.
       LOOP AT mt_detail INTO ls_detail WHERE master_id = ls_master-master_id.
         lv_sum_amount = lv_sum_amount + ls_detail-amount.
@@ -146,44 +178,43 @@ CLASS lcl_app IMPLEMENTATION.
       ENDLOOP.
 
       CLEAR ls_tree_line.
-      ls_tree_line-item_text = 'Summe Positionen'.
+      ls_tree_line-item_text    = 'Summe'.
       ls_tree_line-amount    = lv_sum_amount.
       ls_tree_line-currency  = lv_sum_currency.
       APPEND ls_tree_line TO mt_tree_outtab.
 
+      CLEAR ls_node_layout.
+      ls_node_layout-isfolder = abap_true.
+      ls_node_layout-n_image  = icon_employee.
+      ls_node_layout-exp_image = icon_employee.
+
+
+      "Master-Node
       mo_tree->add_node(
         EXPORTING
           i_relat_node_key = ''
           i_relationship   = cl_gui_column_tree=>relat_last_child
-          i_node_text      = |{ ls_master-master_id } - { ls_master-name } ({ ls_master-status })|
+          is_node_layout   = ls_node_layout
+          i_node_text      = |{ ls_master-master_id } - { ls_master-name } ({ ls_master-category }) ({ ls_master-status })|
           is_outtab_line   = ls_tree_line
         IMPORTING
           e_new_node_key   = lv_master_key ).
 
-      CLEAR: lv_sum_amount, lv_sum_currency.
+      "Detail node
       LOOP AT mt_detail INTO ls_detail WHERE master_id = ls_master-master_id.
-        lv_sum_amount = lv_sum_amount + ls_detail-amount.
-        IF lv_sum_currency IS INITIAL.
-          lv_sum_currency = ls_detail-currency.
+
+        CLEAR ls_node_layout.
+        ls_node_layout-isfolder = abap_false.
+        ls_node_layout-n_image  = icon_green_light.
+        ls_node_layout-exp_image = icon_green_light.
+        IF ls_detail-item_no NOT BETWEEN 1 AND 2.
+          ls_node_layout-n_image  = icon_yellow_light.
+          ls_node_layout-exp_image = icon_yellow_light.
+          ls_node_layout-disabled = 'X'.
         ENDIF.
-      ENDLOOP.
 
-      CLEAR ls_tree_line.
-      ls_tree_line-item_text = 'Summe Positionen'.
-      ls_tree_line-amount    = lv_sum_amount.
-      ls_tree_line-currency  = lv_sum_currency.
-      APPEND ls_tree_line TO mt_tree_outtab.
-
-*      mo_tree->add_node(
-*        EXPORTING
-*          i_relat_node_key = lv_master_key
-*          i_relationship   = cl_gui_column_tree=>relat_last_child
-*          i_node_text      = 'Summe'
-*          is_outtab_line   = ls_tree_line ).
-
-      LOOP AT mt_detail INTO ls_detail WHERE master_id = ls_master-master_id.
         CLEAR ls_tree_line.
-        ls_tree_line-item_text = ls_detail-item_text.
+        ls_tree_line-item_text = ''. "ls_detail-item_text.
         ls_tree_line-amount    = ls_detail-amount.
         ls_tree_line-currency  = ls_detail-currency.
         APPEND ls_tree_line TO mt_tree_outtab.
@@ -192,7 +223,8 @@ CLASS lcl_app IMPLEMENTATION.
           EXPORTING
             i_relat_node_key = lv_master_key
             i_relationship   = cl_gui_column_tree=>relat_last_child
-            i_node_text      = |{ ls_detail-master_id }/{ ls_detail-item_no }|
+            is_node_layout   = ls_node_layout
+            i_node_text      = ls_detail-item_text   "|{ ls_detail-master_id }/{ ls_detail-item_no }|
             is_outtab_line   = ls_tree_line
           IMPORTING
             e_new_node_key   = lv_detail_key ).
