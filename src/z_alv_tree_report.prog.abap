@@ -102,6 +102,9 @@ CLASS lcl_app IMPLEMENTATION.
           ls_tree_line   TYPE ty_tree_line,
           ls_master      TYPE ty_master,
           ls_detail      TYPE ty_detail,
+          lv_master_key   TYPE lvc_nkey,
+          lv_detail_key   TYPE lvc_nkey,
+          lv_sum_amount   TYPE p LENGTH 10 DECIMALS 2,
           lv_master_key  TYPE lvc_nkey,
           lv_detail_key  TYPE lvc_nkey,
           lv_sum_amount  TYPE p LENGTH 10 DECIMALS 2,
@@ -125,7 +128,18 @@ CLASS lcl_app IMPLEMENTATION.
         it_fieldcatalog     = lt_fcat ).
 
     LOOP AT mt_master INTO ls_master.
+      CLEAR: lv_sum_amount, lv_sum_currency.
+      LOOP AT mt_detail INTO ls_detail WHERE master_id = ls_master-master_id.
+        lv_sum_amount = lv_sum_amount + ls_detail-amount.
+        IF lv_sum_currency IS INITIAL.
+          lv_sum_currency = ls_detail-currency.
+        ENDIF.
+      ENDLOOP.
+
       CLEAR ls_tree_line.
+      ls_tree_line-item_text = 'Summe Positionen'.
+      ls_tree_line-amount    = lv_sum_amount.
+      ls_tree_line-currency  = lv_sum_currency.
       APPEND ls_tree_line TO mt_tree_outtab.
 
       mo_tree->add_node(
