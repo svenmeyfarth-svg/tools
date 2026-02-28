@@ -100,8 +100,8 @@ CLASS lcl_app IMPLEMENTATION.
 
   METHOD get_fcat.
     rt_fcat = VALUE lvc_t_fcat(
-      ( fieldname = 'ITEM_TEXT' coltext = 'Monat'    outputlen = 40 )
-      ( fieldname = 'AMOUNT'    coltext = 'Gehalt'   outputlen = 15 )
+      ( fieldname = 'ITEM_TEXT' coltext = 'Position' outputlen = 40 )
+      ( fieldname = 'AMOUNT'    coltext = 'Betrag'   outputlen = 15 )
       ( fieldname = 'CURRENCY'  coltext = 'Whrg'     outputlen = 5 ) ).
   ENDMETHOD.
 
@@ -114,6 +114,9 @@ CLASS lcl_app IMPLEMENTATION.
           lv_master_key   TYPE lvc_nkey,
           lv_detail_key   TYPE lvc_nkey,
           lv_sum_amount   TYPE p LENGTH 10 DECIMALS 2,
+*          lv_master_key  TYPE lvc_nkey,
+*          lv_detail_key  TYPE lvc_nkey,
+*          lv_sum_amount  TYPE p LENGTH 10 DECIMALS 2,
           lv_sum_currency TYPE c LENGTH 3.
 
     lt_fcat = get_fcat( ).
@@ -143,7 +146,7 @@ CLASS lcl_app IMPLEMENTATION.
       ENDLOOP.
 
       CLEAR ls_tree_line.
-      ls_tree_line-item_text = 'Jahressumme Gehalt'.
+      ls_tree_line-item_text = 'Summe Positionen'.
       ls_tree_line-amount    = lv_sum_amount.
       ls_tree_line-currency  = lv_sum_currency.
       APPEND ls_tree_line TO mt_tree_outtab.
@@ -156,6 +159,27 @@ CLASS lcl_app IMPLEMENTATION.
           is_outtab_line   = ls_tree_line
         IMPORTING
           e_new_node_key   = lv_master_key ).
+
+      CLEAR: lv_sum_amount, lv_sum_currency.
+      LOOP AT mt_detail INTO ls_detail WHERE master_id = ls_master-master_id.
+        lv_sum_amount = lv_sum_amount + ls_detail-amount.
+        IF lv_sum_currency IS INITIAL.
+          lv_sum_currency = ls_detail-currency.
+        ENDIF.
+      ENDLOOP.
+
+      CLEAR ls_tree_line.
+      ls_tree_line-item_text = 'Summe Positionen'.
+      ls_tree_line-amount    = lv_sum_amount.
+      ls_tree_line-currency  = lv_sum_currency.
+      APPEND ls_tree_line TO mt_tree_outtab.
+
+*      mo_tree->add_node(
+*        EXPORTING
+*          i_relat_node_key = lv_master_key
+*          i_relationship   = cl_gui_column_tree=>relat_last_child
+*          i_node_text      = 'Summe'
+*          is_outtab_line   = ls_tree_line ).
 
       LOOP AT mt_detail INTO ls_detail WHERE master_id = ls_master-master_id.
         CLEAR ls_tree_line.
