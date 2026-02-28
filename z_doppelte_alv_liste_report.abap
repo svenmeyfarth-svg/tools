@@ -25,7 +25,7 @@ CLASS lcl_app DEFINITION FINAL.
     DATA: mt_master        TYPE STANDARD TABLE OF ty_master,
           mt_detail_all    TYPE STANDARD TABLE OF ty_detail,
           mt_detail_view   TYPE STANDARD TABLE OF ty_detail,
-          mo_main          TYPE REF TO cl_gui_custom_container,
+          mo_main          TYPE REF TO cl_gui_container,
           mo_top_container TYPE REF TO cl_gui_container,
           mo_bot_container TYPE REF TO cl_gui_container,
           mo_splitter      TYPE REF TO cl_gui_splitter_container,
@@ -87,9 +87,7 @@ CLASS lcl_app IMPLEMENTATION.
   ENDMETHOD.
 
   METHOD build_ui_once.
-    CREATE OBJECT mo_main
-      EXPORTING
-        container_name = 'CC_MAIN'.
+    mo_main = cl_gui_container=>screen0.
 
     CREATE OBJECT mo_splitter
       EXPORTING
