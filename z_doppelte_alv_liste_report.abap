@@ -90,12 +90,11 @@ CLASS lcl_app IMPLEMENTATION.
 
 
   METHOD set_cc_main_fullscreen.
+    " Kompatibel über Releases: keine nicht-portablen SCREEN-Felder wie
+    " COL_POS/LINE/HEIGHT verwenden.
     LOOP AT SCREEN.
       IF screen-name = 'CC_MAIN'.
-        screen-col_pos = 1.
-        screen-line    = 1.
-        screen-length  = sy-scols.
-        screen-height  = sy-srows - 2.
+        screen-active = '1'.
         MODIFY SCREEN.
         EXIT.
       ENDIF.
