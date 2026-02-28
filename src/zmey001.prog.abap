@@ -16,6 +16,7 @@ CLASS lcl_app DEFINITION FINAL.
 
     TYPES: BEGIN OF ty_detail,
              master_id TYPE c LENGTH 5,
+             category  TYPE c LENGTH 15,
              item_no   TYPE n LENGTH 3,
              item_text TYPE c LENGTH 40,
              amount    TYPE p LENGTH 10 DECIMALS 2,
@@ -176,9 +177,17 @@ CLASS lcl_app IMPLEMENTATION.
   ENDMETHOD.
 
   METHOD refresh_detail_for_master.
+    DATA: ls_master      TYPE ty_master,
+          ls_detail_view TYPE ty_detail.
+
     CLEAR mt_detail_view.
+    READ TABLE mt_master INTO ls_master WITH KEY master_id = iv_master_id.
     LOOP AT mt_detail_all ASSIGNING FIELD-SYMBOL(<ls_detail>) WHERE master_id = iv_master_id.
-      APPEND <ls_detail> TO mt_detail_view.
+      ls_detail_view = <ls_detail>.
+      IF sy-subrc = 0.
+        ls_detail_view-category = ls_master-category.
+      ENDIF.
+      APPEND ls_detail_view TO mt_detail_view.
     ENDLOOP.
 
     IF mo_salv_detail IS BOUND.
