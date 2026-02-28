@@ -56,7 +56,10 @@ CLASS lcl_app IMPLEMENTATION.
     DATA: ls_master TYPE ty_master,
           lv_index  TYPE i,
           lv_amount TYPE p LENGTH 10 DECIMALS 2,
-          lv_monat  TYPE string.
+          lv_monat  TYPE string,
+          lv_year   TYPE c LENGTH 4.
+
+    lv_year = sy-datum+0(4).
 
     mt_master = VALUE #(
     ( master_id = '48291736' name = 'Anna Schmidt'  category = 'Vertrieb' status = 'AKTIV'   )
@@ -101,7 +104,7 @@ CLASS lcl_app IMPLEMENTATION.
         APPEND VALUE ty_detail(
   master_id = ls_master-master_id
   item_no   = sy-index
-  item_text = |Gehalt Monat { lv_monat } 2026|
+  item_text = |Gehalt Monat { lv_monat } { lv_year }|
   amount    = lv_amount
   currency  = 'EUR' ) TO mt_detail.
       ENDDO.
