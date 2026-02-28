@@ -105,9 +105,9 @@ CLASS lcl_app IMPLEMENTATION.
           lv_master_key   TYPE lvc_nkey,
           lv_detail_key   TYPE lvc_nkey,
           lv_sum_amount   TYPE p LENGTH 10 DECIMALS 2,
-          lv_master_key  TYPE lvc_nkey,
-          lv_detail_key  TYPE lvc_nkey,
-          lv_sum_amount  TYPE p LENGTH 10 DECIMALS 2,
+*          lv_master_key  TYPE lvc_nkey,
+*          lv_detail_key  TYPE lvc_nkey,
+*          lv_sum_amount  TYPE p LENGTH 10 DECIMALS 2,
           lv_sum_currency TYPE c LENGTH 3.
 
     lt_fcat = get_fcat( ).
@@ -165,12 +165,12 @@ CLASS lcl_app IMPLEMENTATION.
       ls_tree_line-currency  = lv_sum_currency.
       APPEND ls_tree_line TO mt_tree_outtab.
 
-      mo_tree->add_node(
-        EXPORTING
-          i_relat_node_key = lv_master_key
-          i_relationship   = cl_gui_column_tree=>relat_last_child
-          i_node_text      = 'Summe'
-          is_outtab_line   = ls_tree_line ).
+*      mo_tree->add_node(
+*        EXPORTING
+*          i_relat_node_key = lv_master_key
+*          i_relationship   = cl_gui_column_tree=>relat_last_child
+*          i_node_text      = 'Summe'
+*          is_outtab_line   = ls_tree_line ).
 
       LOOP AT mt_detail INTO ls_detail WHERE master_id = ls_master-master_id.
         CLEAR ls_tree_line.
