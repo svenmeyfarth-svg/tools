@@ -28,7 +28,6 @@ CLASS lcl_app DEFINITION FINAL.
            END OF ty_detail.
 
     TYPES: BEGIN OF ty_tree_line,
-             node_text TYPE lvc_value,
              item_text TYPE c LENGTH 40,
              amount    TYPE p LENGTH 10 DECIMALS 2,
              currency  TYPE c LENGTH 3,
@@ -92,7 +91,6 @@ CLASS lcl_app IMPLEMENTATION.
 
   METHOD get_fcat.
     rt_fcat = VALUE lvc_t_fcat(
-      ( fieldname = 'NODE_TEXT' coltext = 'Knoten' outputlen = 60 )
       ( fieldname = 'ITEM_TEXT' coltext = 'Position' outputlen = 40 )
       ( fieldname = 'AMOUNT'    coltext = 'Betrag'   outputlen = 15 )
       ( fieldname = 'CURRENCY'  coltext = 'Whrg'     outputlen = 5 ) ).
@@ -126,21 +124,19 @@ CLASS lcl_app IMPLEMENTATION.
 
     LOOP AT mt_master INTO ls_master.
       CLEAR ls_tree_line.
-      ls_tree_line-node_text = |{ ls_master-master_id } - { ls_master-name } ({ ls_master-status })|.
       APPEND ls_tree_line TO mt_tree_outtab.
 
       mo_tree->add_node(
         EXPORTING
           i_relat_node_key = ''
           i_relationship   = cl_gui_column_tree=>relat_last_child
-          i_node_text      = ls_tree_line-node_text
+          i_node_text      = |{ ls_master-master_id } - { ls_master-name } ({ ls_master-status })|
           is_outtab_line   = ls_tree_line
         IMPORTING
           e_new_node_key   = lv_master_key ).
 
       LOOP AT mt_detail INTO ls_detail WHERE master_id = ls_master-master_id.
         CLEAR ls_tree_line.
-        ls_tree_line-node_text = |{ ls_detail-master_id }/{ ls_detail-item_no }|.
         ls_tree_line-item_text = ls_detail-item_text.
         ls_tree_line-amount    = ls_detail-amount.
         ls_tree_line-currency  = ls_detail-currency.
@@ -150,7 +146,7 @@ CLASS lcl_app IMPLEMENTATION.
           EXPORTING
             i_relat_node_key = lv_master_key
             i_relationship   = cl_gui_column_tree=>relat_last_child
-            i_node_text      = ls_tree_line-node_text
+            i_node_text      = |{ ls_detail-master_id }/{ ls_detail-item_no }|
             is_outtab_line   = ls_tree_line
           IMPORTING
             e_new_node_key   = lv_detail_key ).
