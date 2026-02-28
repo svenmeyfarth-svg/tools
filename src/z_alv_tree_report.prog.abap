@@ -29,6 +29,7 @@ CLASS lcl_app DEFINITION FINAL.
 
     TYPES: BEGIN OF ty_tree_line,
              item_text TYPE c LENGTH 40,
+             category  TYPE c LENGTH 15,
              amount    TYPE p LENGTH 10 DECIMALS 2,
              currency  TYPE c LENGTH 3,
            END OF ty_tree_line.
@@ -134,6 +135,7 @@ CLASS lcl_app IMPLEMENTATION.
   METHOD get_fcat.
     rt_fcat = VALUE lvc_t_fcat(
       ( fieldname = 'ITEM_TEXT' coltext = '' outputlen = 40 )
+      ( fieldname = 'CATEGORY'  coltext = 'Category' outputlen = 15 )
       ( fieldname = 'AMOUNT'    coltext = 'Betrag'   outputlen = 15 )
       ( fieldname = 'CURRENCY'  coltext = 'Whrg'     outputlen = 5 ) ).
   ENDMETHOD.
@@ -182,6 +184,7 @@ CLASS lcl_app IMPLEMENTATION.
 
       CLEAR ls_tree_line.
       ls_tree_line-item_text    = 'Summe'.
+      ls_tree_line-category  = ls_master-category.
       ls_tree_line-amount    = lv_sum_amount.
       ls_tree_line-currency  = lv_sum_currency.
       APPEND ls_tree_line TO mt_tree_outtab.
@@ -218,6 +221,7 @@ CLASS lcl_app IMPLEMENTATION.
 
         CLEAR ls_tree_line.
         ls_tree_line-item_text = ''. "ls_detail-item_text.
+        ls_tree_line-category  = ls_master-category.
         ls_tree_line-amount    = ls_detail-amount.
         ls_tree_line-currency  = ls_detail-currency.
         APPEND ls_tree_line TO mt_tree_outtab.
