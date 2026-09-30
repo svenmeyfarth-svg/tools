@@ -58,6 +58,7 @@ CLASS zcl_hr_bonus_factor DEFINITION
         schedule_error
         customizing_error.
 
+protected section.
   PRIVATE SECTION.
     CLASS-METHODS read_infotype
       IMPORTING
@@ -71,97 +72,10 @@ CLASS zcl_hr_bonus_factor DEFINITION
         read_error.
 ENDCLASS.
 
-CLASS zcl_hr_bonus_factor IMPLEMENTATION.
-  METHOD get_unpaid_awart.
-    " KLBEW verbindet Abwesenheitsart und Bewertungsregel.
-    " MOABW und MODIF sind unabhaengige Gruppierungen!
-    " OCABS leer: regulaere Bewertung, keine Offcycle-Variante.
-    SELECT s~subty AS awart,
-           s~begda AS s_begda, s~endda AS s_endda,
-           c~begda AS c_begda, c~endda AS c_endda
-      FROM t554s AS s
-      INNER JOIN t554c AS c ON c~klbew = s~klbew
-      WHERE s~moabw = @iv_moabw
-        AND s~begda <= @iv_endda
-        AND s~endda >= @iv_begda
-        AND c~molga = @iv_molga
-        AND c~modif = @iv_modif
-        AND c~ocabs = @space
-        AND c~ref01 = @space
-        AND c~begda <= @iv_endda
-        AND c~endda >= @iv_begda
-        AND c~begda <= s~endda
-        AND c~endda >= s~begda
-      INTO TABLE @DATA(lt_rules).
 
-    LOOP AT lt_rules INTO DATA(ls_rule).
-      DATA(ls_unpaid) = VALUE ty_unpaid(
-        awart = ls_rule-awart begda = iv_begda endda = iv_endda ).
-      IF ls_rule-s_begda > ls_unpaid-begda.
-        ls_unpaid-begda = ls_rule-s_begda.
-      ENDIF.
-      IF ls_rule-c_begda > ls_unpaid-begda.
-        ls_unpaid-begda = ls_rule-c_begda.
-      ENDIF.
-      IF ls_rule-s_endda < ls_unpaid-endda.
-        ls_unpaid-endda = ls_rule-s_endda.
-      ENDIF.
-      IF ls_rule-c_endda < ls_unpaid-endda.
-        ls_unpaid-endda = ls_rule-c_endda.
-      ENDIF.
-      IF ls_unpaid-begda <= ls_unpaid-endda.
-        INSERT ls_unpaid INTO TABLE rt_unpaid.
-      ENDIF.
-    ENDLOOP.
-  ENDMETHOD.
 
-  METHOD read_infotype.
-    DATA lv_subrc TYPE sy-subrc.
-    CLEAR ct_data.
+CLASS ZCL_HR_BONUS_FACTOR IMPLEMENTATION.
 
-    CALL FUNCTION 'HR_READ_INFOTYPE'
-      EXPORTING
-        pernr           = iv_pernr
-        infty           = iv_infty
-        begda           = iv_begda
-        endda           = iv_endda
-      IMPORTING
-        subrc           = lv_subrc
-      TABLES
-        infty_tab       = ct_data
-      EXCEPTIONS
-        infty_not_found = 1
-        OTHERS          = 2.
-
-    " Ein fehlender Infotyp ist eine leere Ergebnismenge.
-    " Sonstige Fehler duerfen nicht als fehlende Daten gelten.
-    CASE sy-subrc.
-      WHEN 1. " INFTY_NOT_FOUND
-        CLEAR ct_data.
-        RETURN.
-      WHEN 0.
-        IF lv_subrc = 4.
-          CLEAR ct_data.
-          RETURN.
-        ELSEIF lv_subrc <> 0.
-          RAISE read_error.
-        ENDIF.
-      WHEN OTHERS.
-        RAISE read_error.
-    ENDCASE.
-    " Ob die Daten fuer einen Arbeitszeitplan ausreichen,
-    " entscheidet anschliessend HR_PERSONAL_WORK_SCHEDULE.
-
-    LOOP AT ct_data ASSIGNING FIELD-SYMBOL(<record>).
-      ASSIGN COMPONENT 'SPRPS' OF STRUCTURE <record>
-        TO FIELD-SYMBOL(<locked>).
-      IF sy-subrc = 0.
-        IF <locked> = 'X'.
-          DELETE ct_data.
-        ENDIF.
-      ENDIF.
-    ENDLOOP.
-  ENDMETHOD.
 
   METHOD get_factors.
     DATA:
@@ -367,5 +281,98 @@ CLASS zcl_hr_bonus_factor IMPLEMENTATION.
     ENDLOOP.
     et_days = lt_days.
     et_months = lt_months.
+  ENDMETHOD.
+
+
+  METHOD get_unpaid_awart.
+    " KLBEW verbindet Abwesenheitsart und Bewertungsregel.
+    " MOABW und MODIF sind unabhaengige Gruppierungen!
+    " OCABS leer: regulaere Bewertung, keine Offcycle-Variante.
+    SELECT s~subty AS awart,
+           s~begda AS s_begda, s~endda AS s_endda,
+           c~begda AS c_begda, c~endda AS c_endda
+      FROM t554s AS s
+      INNER JOIN t554c AS c ON c~klbew = s~klbew
+      WHERE s~moabw = @iv_moabw
+        AND s~begda <= @iv_endda
+        AND s~endda >= @iv_begda
+        AND c~molga = @iv_molga
+        AND c~modif = @iv_modif
+        AND c~ocabs = @space
+        AND c~ref01 = @space
+        AND c~begda <= @iv_endda
+        AND c~endda >= @iv_begda
+        AND c~begda <= s~endda
+        AND c~endda >= s~begda
+      INTO TABLE @DATA(lt_rules).
+
+    LOOP AT lt_rules INTO DATA(ls_rule).
+      DATA(ls_unpaid) = VALUE ty_unpaid(
+        awart = ls_rule-awart begda = iv_begda endda = iv_endda ).
+      IF ls_rule-s_begda > ls_unpaid-begda.
+        ls_unpaid-begda = ls_rule-s_begda.
+      ENDIF.
+      IF ls_rule-c_begda > ls_unpaid-begda.
+        ls_unpaid-begda = ls_rule-c_begda.
+      ENDIF.
+      IF ls_rule-s_endda < ls_unpaid-endda.
+        ls_unpaid-endda = ls_rule-s_endda.
+      ENDIF.
+      IF ls_rule-c_endda < ls_unpaid-endda.
+        ls_unpaid-endda = ls_rule-c_endda.
+      ENDIF.
+      IF ls_unpaid-begda <= ls_unpaid-endda.
+        INSERT ls_unpaid INTO TABLE rt_unpaid.
+      ENDIF.
+    ENDLOOP.
+  ENDMETHOD.
+
+
+  METHOD read_infotype.
+    DATA lv_subrc TYPE sy-subrc.
+    CLEAR ct_data.
+
+    CALL FUNCTION 'HR_READ_INFOTYPE'
+      EXPORTING
+        pernr           = iv_pernr
+        infty           = iv_infty
+        begda           = iv_begda
+        endda           = iv_endda
+      IMPORTING
+        subrc           = lv_subrc
+      TABLES
+        infty_tab       = ct_data
+      EXCEPTIONS
+        infty_not_found = 1
+        OTHERS          = 2.
+
+    " Ein fehlender Infotyp ist eine leere Ergebnismenge.
+    " Sonstige Fehler duerfen nicht als fehlende Daten gelten.
+    CASE sy-subrc.
+      WHEN 1. " INFTY_NOT_FOUND
+        CLEAR ct_data.
+        RETURN.
+      WHEN 0.
+*        IF lv_subrc = 4.
+**          CLEAR ct_data.
+*          RETURN.
+*        ELSEIF lv_subrc <> 0.
+*          RAISE read_error.
+*        ENDIF.
+      WHEN OTHERS.
+*        RAISE read_error.
+    ENDCASE.
+    " Ob die Daten fuer einen Arbeitszeitplan ausreichen,
+    " entscheidet anschliessend HR_PERSONAL_WORK_SCHEDULE.
+
+    LOOP AT ct_data ASSIGNING FIELD-SYMBOL(<record>).
+      ASSIGN COMPONENT 'SPRPS' OF STRUCTURE <record>
+        TO FIELD-SYMBOL(<locked>).
+      IF sy-subrc = 0.
+        IF <locked> = 'X'.
+          DELETE ct_data.
+        ENDIF.
+      ENDIF.
+    ENDLOOP.
   ENDMETHOD.
 ENDCLASS.

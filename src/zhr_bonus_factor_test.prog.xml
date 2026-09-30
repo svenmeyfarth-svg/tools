@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <abapGit version="v1.0.0" serializer="LCL_OBJECT_PROG" serializer_version="v1.0.0">
  <asx:abap xmlns:asx="http://www.sap.com/abapxml" version="1.0">
   <asx:values>
@@ -19,37 +19,37 @@
      <ID>S</ID>
      <KEY>P_PERNR</KEY>
      <ENTRY>Personalnummer</ENTRY>
-     <LENGTH>14</LENGTH>
+     <LENGTH>22</LENGTH>
     </item>
     <item>
      <ID>S</ID>
      <KEY>P_BEGDA</KEY>
      <ENTRY>Beginn</ENTRY>
-     <LENGTH>6</LENGTH>
+     <LENGTH>14</LENGTH>
     </item>
     <item>
      <ID>S</ID>
      <KEY>P_ENDDA</KEY>
      <ENTRY>Ende</ENTRY>
-     <LENGTH>4</LENGTH>
+     <LENGTH>12</LENGTH>
     </item>
     <item>
      <ID>S</ID>
      <KEY>S_AWART</KEY>
      <ENTRY>Abwesenheitsarten (optional)</ENTRY>
-     <LENGTH>28</LENGTH>
+     <LENGTH>36</LENGTH>
     </item>
     <item>
      <ID>S</ID>
      <KEY>P_MONTH</KEY>
      <ENTRY>Monatsfaktoren</ENTRY>
-     <LENGTH>14</LENGTH>
+     <LENGTH>22</LENGTH>
     </item>
     <item>
      <ID>S</ID>
      <KEY>P_DAY</KEY>
      <ENTRY>Tagesdetails</ENTRY>
-     <LENGTH>12</LENGTH>
+     <LENGTH>20</LENGTH>
     </item>
    </TPOOL>
   </asx:values>
