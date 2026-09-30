@@ -179,7 +179,7 @@ CLASS zcl_hr_bonus_factor IMPLEMENTATION.
       lt_unpaid  TYPE ty_t_unpaid,
       lv_date    TYPE d,
       lv_month   TYPE n LENGTH 6,
-      lv_warning TYPE c LENGTH 1.
+      lv_warning TYPE sy-subrc.
 
     CLEAR: et_months, et_days.
     IF iv_pernr IS INITIAL
