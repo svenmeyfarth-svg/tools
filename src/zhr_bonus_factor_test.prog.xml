@@ -36,7 +36,7 @@
     <item>
      <ID>S</ID>
      <KEY>S_AWART</KEY>
-     <ENTRY>Unbezahlte Abwesenheitsarten</ENTRY>
+     <ENTRY>Abwesenheitsarten (optional)</ENTRY>
      <LENGTH>28</LENGTH>
     </item>
     <item>

@@ -7,9 +7,9 @@ PARAMETERS:
   p_begda TYPE begda DEFAULT '20260101' OBLIGATORY,
   p_endda TYPE endda DEFAULT '20261231' OBLIGATORY.
 
-" Nur die fachlich als unbezahlt/kuerzungsrelevant definierten Arten
-" auswaehlen. Die Selektion bestimmt keine automatische Bewertung.
-SELECT-OPTIONS s_awart FOR gv_awart OBLIGATORY.
+" Leer: alle ueber T554C-REF01 ermittelten unbezahlten Arten.
+" Gefuellt: zusaetzliche Einschraenkung, keine Bewertungsuebersteuerung.
+SELECT-OPTIONS s_awart FOR gv_awart.
 
 PARAMETERS:
   p_month RADIOBUTTON GROUP view DEFAULT 'X',
@@ -32,15 +32,17 @@ START-OF-SELECTION.
 
   " Intervalle, Einzelwerte und Ausschluesse gegen Customizing aufloesen.
   " DISTINCT vermeidet doppelte Schluessel verschiedener Gruppierungen.
-  SELECT DISTINCT subty
-    FROM t554s
-    WHERE subty IN @s_awart
-    INTO TABLE @lt_awart.
+  IF s_awart[] IS NOT INITIAL.
+    SELECT DISTINCT subty
+      FROM t554s
+      WHERE subty IN @s_awart
+      INTO TABLE @lt_awart.
 
-  IF lt_awart IS INITIAL.
-    MESSAGE 'Keine Abwesenheitsart passt zur Selektion in T554S'
-      TYPE 'S' DISPLAY LIKE 'E'.
-    RETURN.
+    IF lt_awart IS INITIAL.
+      MESSAGE 'Keine Abwesenheitsart passt zur Selektion in T554S'
+        TYPE 'S' DISPLAY LIKE 'E'.
+      RETURN.
+    ENDIF.
   ENDIF.
 
   zcl_hr_bonus_factor=>get_factors(
@@ -49,6 +51,7 @@ START-OF-SELECTION.
       iv_begda        = p_begda
       iv_endda        = p_endda
       it_unpaid_awart = lt_awart
+      iv_modif        = '01'
     IMPORTING
       et_months       = lt_months
       et_days         = lt_days
@@ -56,7 +59,8 @@ START-OF-SELECTION.
       invalid_input   = 1
       infotype_error  = 2
       schedule_error  = 3
-      OTHERS          = 4 ).
+      customizing_error = 4
+      OTHERS          = 5 ).
 
   CASE sy-subrc.
     WHEN 1.
@@ -72,6 +76,10 @@ START-OF-SELECTION.
         TYPE 'S' DISPLAY LIKE 'E'.
       RETURN.
     WHEN 4.
+      MESSAGE 'Organisatorische Zuordnung fehlt im Customizing T001P'
+        TYPE 'S' DISPLAY LIKE 'E'.
+      RETURN.
+    WHEN 5.
       MESSAGE 'Unerwarteter Fehler bei der Faktorberechnung'
         TYPE 'S' DISPLAY LIKE 'E'.
       RETURN.

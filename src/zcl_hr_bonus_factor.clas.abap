@@ -5,6 +5,13 @@ CLASS zcl_hr_bonus_factor DEFINITION
     TYPES:
       ty_t_awart TYPE SORTED TABLE OF p2001-awart
         WITH UNIQUE KEY table_line,
+      BEGIN OF ty_unpaid,
+        awart TYPE p2001-awart,
+        begda TYPE begda,
+        endda TYPE endda,
+      END OF ty_unpaid,
+      ty_t_unpaid TYPE SORTED TABLE OF ty_unpaid
+        WITH UNIQUE KEY awart begda endda,
       BEGIN OF ty_day,
         datum         TYPE d,
         tprog         TYPE ptpsp-tprog,
@@ -23,19 +30,33 @@ CLASS zcl_hr_bonus_factor DEFINITION
       END OF ty_month,
       ty_t_month TYPE SORTED TABLE OF ty_month WITH UNIQUE KEY monat.
 
+    " REF01 leer: unbezahlt. Zeitraum ist die Schnittmenge
+    " der Gueltigkeiten von T554S, T554C und dem Aufrufzeitraum.
+    CLASS-METHODS get_unpaid_awart
+      IMPORTING
+        iv_molga TYPE t554c-molga
+        iv_moabw TYPE t554s-moabw
+        iv_begda TYPE begda
+        iv_endda TYPE endda
+        iv_modif TYPE t554c-modif DEFAULT '01'
+      RETURNING
+        VALUE(rt_unpaid) TYPE ty_t_unpaid.
+
     CLASS-METHODS get_factors
       IMPORTING
         iv_pernr        TYPE pernr_d
         iv_begda        TYPE begda
         iv_endda        TYPE endda
-        it_unpaid_awart TYPE ty_t_awart
+        it_unpaid_awart TYPE ty_t_awart OPTIONAL
+        iv_modif        TYPE t554c-modif DEFAULT '01'
       EXPORTING
         et_months       TYPE ty_t_month
         et_days         TYPE ty_t_day
       EXCEPTIONS
         invalid_input
         infotype_error
-        schedule_error.
+        schedule_error
+        customizing_error.
 
   PRIVATE SECTION.
     CLASS-METHODS read_infotype
@@ -51,6 +72,49 @@ CLASS zcl_hr_bonus_factor DEFINITION
 ENDCLASS.
 
 CLASS zcl_hr_bonus_factor IMPLEMENTATION.
+  METHOD get_unpaid_awart.
+    " KLBEW verbindet Abwesenheitsart und Bewertungsregel.
+    " MOABW und MODIF sind unabhaengige Gruppierungen!
+    " OCABS leer: regulaere Bewertung, keine Offcycle-Variante.
+    SELECT s~subty AS awart,
+           s~begda AS s_begda, s~endda AS s_endda,
+           c~begda AS c_begda, c~endda AS c_endda
+      FROM t554s AS s
+      INNER JOIN t554c AS c ON c~klbew = s~klbew
+      WHERE s~moabw = @iv_moabw
+        AND s~begda <= @iv_endda
+        AND s~endda >= @iv_begda
+        AND c~molga = @iv_molga
+        AND c~modif = @iv_modif
+        AND c~ocabs = @space
+        AND c~ref01 = @space
+        AND c~begda <= @iv_endda
+        AND c~endda >= @iv_begda
+        AND c~begda <= s~endda
+        AND c~endda >= s~begda
+      INTO TABLE @DATA(lt_rules).
+
+    LOOP AT lt_rules INTO DATA(ls_rule).
+      DATA(ls_unpaid) = VALUE ty_unpaid(
+        awart = ls_rule-awart begda = iv_begda endda = iv_endda ).
+      IF ls_rule-s_begda > ls_unpaid-begda.
+        ls_unpaid-begda = ls_rule-s_begda.
+      ENDIF.
+      IF ls_rule-c_begda > ls_unpaid-begda.
+        ls_unpaid-begda = ls_rule-c_begda.
+      ENDIF.
+      IF ls_rule-s_endda < ls_unpaid-endda.
+        ls_unpaid-endda = ls_rule-s_endda.
+      ENDIF.
+      IF ls_rule-c_endda < ls_unpaid-endda.
+        ls_unpaid-endda = ls_rule-c_endda.
+      ENDIF.
+      IF ls_unpaid-begda <= ls_unpaid-endda.
+        INSERT ls_unpaid INTO TABLE rt_unpaid.
+      ENDIF.
+    ENDLOOP.
+  ENDMETHOD.
+
   METHOD read_infotype.
     DATA lv_subrc TYPE sy-subrc.
     CLEAR ct_data.
@@ -112,6 +176,7 @@ CLASS zcl_hr_bonus_factor IMPLEMENTATION.
       lt_perws   TYPE STANDARD TABLE OF ptpsp,
       lt_days    TYPE ty_t_day,
       lt_months  TYPE ty_t_month,
+      lt_unpaid  TYPE ty_t_unpaid,
       lv_date    TYPE d,
       lv_month   TYPE n LENGTH 6,
       lv_warning TYPE c LENGTH 1.
@@ -121,7 +186,7 @@ CLASS zcl_hr_bonus_factor IMPLEMENTATION.
        OR iv_begda IS INITIAL OR iv_endda IS INITIAL
        OR iv_begda > iv_endda
        OR iv_begda(4) <> iv_endda(4)
-       OR it_unpaid_awart IS INITIAL.
+       OR iv_modif IS INITIAL.
       RAISE invalid_input.
     ENDIF.
 
@@ -167,6 +232,36 @@ CLASS zcl_hr_bonus_factor IMPLEMENTATION.
     read_it '2001' lt_2001.
     read_it '2003' lt_2003.
 
+    " Historische organisatorische Zuordnung beachten: ein Wechsel
+    " darf nicht die Bewertung des gesamten Jahres veraendern.
+    LOOP AT lt_0001 INTO DATA(ls_org)
+      WHERE begda <= iv_endda AND endda >= iv_begda.
+      SELECT SINGLE molga, moabw
+        FROM t001p
+        WHERE werks = @ls_org-werks AND btrtl = @ls_org-btrtl
+        INTO @DATA(ls_group).
+      IF sy-subrc <> 0.
+        RAISE customizing_error.
+      ENDIF.
+
+      DATA(lv_from) = iv_begda.
+      DATA(lv_to) = iv_endda.
+      IF ls_org-begda > lv_from.
+        lv_from = ls_org-begda.
+      ENDIF.
+      IF ls_org-endda < lv_to.
+        lv_to = ls_org-endda.
+      ENDIF.
+
+      DATA(lt_org_unpaid) = get_unpaid_awart(
+        iv_molga = ls_group-molga
+        iv_moabw = ls_group-moabw
+        iv_modif = iv_modif
+        iv_begda = lv_from
+        iv_endda = lv_to ).
+      INSERT LINES OF lt_org_unpaid INTO TABLE lt_unpaid.
+    ENDLOOP.
+
     " Sollbasis ohne Abwesenheiten; Vertretungen bleiben erhalten.
     CALL FUNCTION 'HR_PERSONAL_WORK_SCHEDULE'
       EXPORTING
@@ -200,11 +295,15 @@ CLASS zcl_hr_bonus_factor IMPLEMENTATION.
         DELETE lt_2001.
         CONTINUE.
       ENDIF.
-      READ TABLE it_unpaid_awart
-        WITH TABLE KEY table_line = <absence>-awart
-        TRANSPORTING NO FIELDS.
-      IF sy-subrc <> 0.
-        DELETE lt_2001.
+      " Eine explizite Liste ist nur ein zusaetzlicher Filter.
+      " Sie kann keine laut REF01 bezahlten Arten einschliessen.
+      IF it_unpaid_awart IS NOT INITIAL.
+        READ TABLE it_unpaid_awart
+          WITH TABLE KEY table_line = <absence>-awart
+          TRANSPORTING NO FIELDS.
+        IF sy-subrc <> 0.
+          DELETE lt_2001.
+        ENDIF.
       ENDIF.
     ENDLOOP.
 
@@ -222,10 +321,17 @@ CLASS zcl_hr_bonus_factor IMPLEMENTATION.
         sollstunden = ls_plan-stdaz ).
       IF ls_plan-stdaz > 0.
         ls_day-solltag = 1.
-        LOOP AT lt_2001 TRANSPORTING NO FIELDS
+        LOOP AT lt_2001 INTO DATA(ls_absence)
           WHERE begda <= lv_date AND endda >= lv_date.
-          ls_day-unbezahlt_tag = 1.
-          EXIT. " Jeden Arbeitstag hoechstens einmal kuerzen
+          LOOP AT lt_unpaid TRANSPORTING NO FIELDS
+            WHERE awart = ls_absence-awart
+              AND begda <= lv_date AND endda >= lv_date.
+            ls_day-unbezahlt_tag = 1.
+            EXIT.
+          ENDLOOP.
+          IF ls_day-unbezahlt_tag = 1.
+            EXIT. " Jeden Arbeitstag hoechstens einmal kuerzen
+          ENDIF.
         ENDLOOP.
       ENDIF.
       INSERT ls_day INTO TABLE lt_days.
