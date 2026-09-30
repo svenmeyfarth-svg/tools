@@ -69,11 +69,24 @@ CLASS zcl_hr_bonus_factor IMPLEMENTATION.
         infty_not_found = 1
         OTHERS          = 2.
 
-    " SUBRC 4: kein Datensatz im Zeitraum.
-    " Fehlende Pflichtdaten prueft die Planerzeugung.
-    IF sy-subrc <> 0 OR ( lv_subrc <> 0 AND lv_subrc <> 4 ).
-      RAISE read_error.
-    ENDIF.
+    " Ein fehlender Infotyp ist eine leere Ergebnismenge.
+    " Sonstige Fehler duerfen nicht als fehlende Daten gelten.
+    CASE sy-subrc.
+      WHEN 1. " INFTY_NOT_FOUND
+        CLEAR ct_data.
+        RETURN.
+      WHEN 0.
+        IF lv_subrc = 4.
+          CLEAR ct_data.
+          RETURN.
+        ELSEIF lv_subrc <> 0.
+          RAISE read_error.
+        ENDIF.
+      WHEN OTHERS.
+        RAISE read_error.
+    ENDCASE.
+    " Ob die Daten fuer einen Arbeitszeitplan ausreichen,
+    " entscheidet anschliessend HR_PERSONAL_WORK_SCHEDULE.
 
     LOOP AT ct_data ASSIGNING FIELD-SYMBOL(<record>).
       ASSIGN COMPONENT 'SPRPS' OF STRUCTURE <record>
