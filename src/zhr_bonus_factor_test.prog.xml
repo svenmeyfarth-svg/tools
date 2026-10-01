@@ -51,6 +51,12 @@
      <ENTRY>Tagesdetails</ENTRY>
      <LENGTH>20</LENGTH>
     </item>
+    <item>
+     <ID>S</ID>
+     <KEY>P_ABS</KEY>
+     <ENTRY>Beruecksichtigte Abwesenheiten</ENTRY>
+     <LENGTH>38</LENGTH>
+    </item>
    </TPOOL>
   </asx:values>
  </asx:abap>

@@ -12,6 +12,21 @@ CLASS zcl_hr_bonus_factor DEFINITION
       END OF ty_unpaid,
       ty_t_unpaid TYPE SORTED TABLE OF ty_unpaid
         WITH UNIQUE KEY awart begda endda,
+      BEGIN OF ty_absence,
+        monat TYPE n LENGTH 6,
+        begda TYPE begda,
+        endda TYPE endda,
+        awart TYPE p2001-awart,
+        atext TYPE t554t-atext,
+        objps TYPE p2001-objps,
+        seqnr TYPE p2001-seqnr,
+        bewertet_von TYPE d,
+        bewertet_bis TYPE d,
+        tage TYPE i,
+        faktor TYPE decfloat34,
+      END OF ty_absence,
+      ty_t_absence TYPE SORTED TABLE OF ty_absence
+        WITH UNIQUE KEY monat begda endda awart objps seqnr atext,
       ty_t_actions TYPE STANDARD TABLE OF p0000 WITH DEFAULT KEY,
       ty_t_pay TYPE STANDARD TABLE OF p0008 WITH DEFAULT KEY,
       BEGIN OF ty_day,
@@ -91,6 +106,7 @@ CLASS zcl_hr_bonus_factor DEFINITION
       EXPORTING
         et_months       TYPE ty_t_month
         et_days         TYPE ty_t_day
+        et_absences     TYPE ty_t_absence
       EXCEPTIONS
         invalid_input
         infotype_error
@@ -142,7 +158,7 @@ CLASS ZCL_HR_BONUS_FACTOR IMPLEMENTATION.
       lv_reference TYPE d,
       lv_employed TYPE abap_bool.
 
-    CLEAR: et_months, et_days.
+    CLEAR: et_months, et_days, et_absences.
     IF iv_pernr IS INITIAL
        OR iv_begda IS INITIAL OR iv_endda IS INITIAL
        OR iv_begda > iv_endda
@@ -439,6 +455,62 @@ CLASS ZCL_HR_BONUS_FACTOR IMPLEMENTATION.
     ENDDO.
 
     lt_months = summarize_days( lt_days ).
+    " Nur echte IT2001-Saetze, die an bewerteten Arbeitstagen
+    " in einem Monat mit gueltigem Faktor < 1 beruecksichtigt wurden.
+    DATA lt_result_abs TYPE ty_t_absence.
+    LOOP AT lt_months INTO DATA(ls_result_month)
+      WHERE faktor_gueltig = abap_true AND faktor < 1.
+      LOOP AT lt_2001 INTO DATA(ls_result_abs).
+        LOOP AT lt_days INTO DATA(ls_result_day)
+          WHERE datum >= ls_result_abs-begda
+            AND datum <= ls_result_abs-endda
+            AND abwesenheit_tag = 1.
+          IF ls_result_day-datum(6) <> ls_result_month-monat.
+            CONTINUE.
+          ENDIF.
+          " Nicht nur auf die Tagesmarkierung schauen: dieselbe AWART
+          " muss am Tag laut Customizing unbezahlt gewesen sein.
+          LOOP AT lt_unpaid TRANSPORTING NO FIELDS
+            WHERE awart = ls_result_abs-awart
+              AND begda <= ls_result_day-datum
+              AND endda >= ls_result_day-datum.
+            EXIT.
+          ENDLOOP.
+          IF sy-subrc <> 0.
+            CONTINUE.
+          ENDIF.
+          READ TABLE lt_day_group INTO DATA(ls_result_group)
+            WITH TABLE KEY datum = ls_result_day-datum.
+          DATA lv_result_text TYPE t554t-atext.
+          lv_result_text = 'Text nicht gepflegt'.
+          READ TABLE lt_abs_texts INTO DATA(ls_result_text)
+            WITH KEY moabw = ls_result_group-moabw awart = ls_result_abs-awart.
+          IF sy-subrc = 0.
+            lv_result_text = ls_result_text-atext.
+          ENDIF.
+          READ TABLE lt_result_abs ASSIGNING FIELD-SYMBOL(<result_abs>)
+            WITH TABLE KEY monat = ls_result_month-monat
+              begda = ls_result_abs-begda endda = ls_result_abs-endda
+              awart = ls_result_abs-awart objps = ls_result_abs-objps
+              seqnr = ls_result_abs-seqnr atext = lv_result_text.
+          IF sy-subrc <> 0.
+            INSERT VALUE #(
+              monat = ls_result_month-monat
+              begda = ls_result_abs-begda endda = ls_result_abs-endda
+              awart = ls_result_abs-awart objps = ls_result_abs-objps
+              seqnr = ls_result_abs-seqnr atext = lv_result_text
+              bewertet_von = ls_result_day-datum
+              bewertet_bis = ls_result_day-datum
+              faktor = ls_result_month-faktor )
+              INTO TABLE lt_result_abs ASSIGNING <result_abs>.
+          ENDIF.
+          <result_abs>-bewertet_bis = ls_result_day-datum.
+          <result_abs>-tage = <result_abs>-tage + 1.
+        ENDLOOP.
+      ENDLOOP.
+    ENDLOOP.
+    " Tage gelten je Abwesenheit; bei Ueberlappung nicht summieren.
+    et_absences = lt_result_abs.
     et_days = lt_days.
     et_months = lt_months.
   ENDMETHOD.
