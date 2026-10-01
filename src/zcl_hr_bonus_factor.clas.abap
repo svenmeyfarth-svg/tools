@@ -12,23 +12,45 @@ CLASS zcl_hr_bonus_factor DEFINITION
       END OF ty_unpaid,
       ty_t_unpaid TYPE SORTED TABLE OF ty_unpaid
         WITH UNIQUE KEY awart begda endda,
+      ty_t_actions TYPE STANDARD TABLE OF p0000 WITH DEFAULT KEY,
       BEGIN OF ty_day,
         datum         TYPE d,
         tprog         TYPE ptpsp-tprog,
         sollstunden   TYPE ptpsp-stdaz,
         solltag       TYPE i,
         unbezahlt_tag TYPE i,
+        beschaeftigt  TYPE abap_bool,
+        ausserhalb_tag TYPE i,
+        abwesenheit_tag TYPE i,
       END OF ty_day,
       ty_t_day TYPE SORTED TABLE OF ty_day WITH UNIQUE KEY datum,
       BEGIN OF ty_month,
         monat           TYPE n LENGTH 6,
         solltage        TYPE i,
         unbezahlte_tage TYPE i,
+        ausserhalb_tage TYPE i,
+        abwesenheit_tage TYPE i,
+        beschaeftigungstage TYPE i,
         anrechenbar     TYPE i,
         faktor          TYPE decfloat34,
         faktor_gueltig  TYPE abap_bool,
       END OF ty_month,
       ty_t_month TYPE SORTED TABLE OF ty_month WITH UNIQUE KEY monat.
+
+    " Referenzdatum fuer den Sollplan; STAT2 1 ist kein Austritt.
+    CLASS-METHODS summarize_days
+      IMPORTING it_days TYPE ty_t_day
+      RETURNING VALUE(rt_months) TYPE ty_t_month.
+
+    CLASS-METHODS get_employment_reference
+      IMPORTING
+        it_actions TYPE ty_t_actions
+        iv_date TYPE d
+      EXPORTING
+        ev_reference TYPE d
+        ev_employed TYPE abap_bool
+      EXCEPTIONS
+        missing_employment.
 
     " REF01 leer: unbezahlt. Zeitraum ist die Schnittmenge
     " der Gueltigkeiten von T554S, T554C und dem Aufrufzeitraum.
@@ -92,8 +114,15 @@ CLASS ZCL_HR_BONUS_FACTOR IMPLEMENTATION.
       lt_months  TYPE ty_t_month,
       lt_unpaid  TYPE ty_t_unpaid,
       lv_date    TYPE d,
-      lv_month   TYPE n LENGTH 6,
-      lv_warning TYPE sy-subrc.
+      lv_warning TYPE sy-subrc,
+      lv_read_begda TYPE begda VALUE '18000101',
+      lv_read_endda TYPE endda VALUE '99991231',
+      lt_plan_0000 TYPE STANDARD TABLE OF p0000,
+      lt_plan_0001 TYPE STANDARD TABLE OF p0001,
+      lt_plan_0002 TYPE STANDARD TABLE OF p0002,
+      lt_plan_0007 TYPE STANDARD TABLE OF p0007,
+      lv_reference TYPE d,
+      lv_employed TYPE abap_bool.
 
     CLEAR: et_months, et_days.
     IF iv_pernr IS INITIAL
@@ -128,8 +157,8 @@ CLASS ZCL_HR_BONUS_FACTOR IMPLEMENTATION.
         EXPORTING
           iv_pernr = iv_pernr
           iv_infty = &1
-          iv_begda = iv_begda
-          iv_endda = iv_endda
+          iv_begda = lv_read_begda
+          iv_endda = lv_read_endda
         CHANGING
           ct_data = &2
         EXCEPTIONS
@@ -143,6 +172,10 @@ CLASS ZCL_HR_BONUS_FACTOR IMPLEMENTATION.
     read_it '0001' lt_0001.
     read_it '0002' lt_0002.
     read_it '0007' lt_0007.
+    " Historie wird fuer die Fortschreibung vor Eintritt/nach Austritt
+    " gebraucht. Bewegungsdaten nur fuer den angeforderten Zeitraum.
+    lv_read_begda = iv_begda.
+    lv_read_endda = iv_endda.
     read_it '2001' lt_2001.
     read_it '2003' lt_2003.
 
@@ -176,7 +209,88 @@ CLASS ZCL_HR_BONUS_FACTOR IMPLEMENTATION.
       INSERT LINES OF lt_org_unpaid INTO TABLE lt_unpaid.
     ENDLOOP.
 
-    " Sollbasis ohne Abwesenheiten; Vertretungen bleiben erhalten.
+    " Nur lokale Kopien fuer die Planerzeugung. Keine Stammdatenpflege!
+    " Vor dem ersten Eintritt: erste Beschaeftigungsregel.
+    " Nach Austritt/in Wiedereintrittsluecken: letzte Beschaeftigungsregel.
+    " SAP erzeugt damit den Plan am Zieldatum (Schichtzyklus/Feiertage).
+    lv_date = iv_begda.
+    DO.
+      get_employment_reference(
+        EXPORTING it_actions = lt_0000 iv_date = lv_date
+        IMPORTING ev_reference = lv_reference ev_employed = lv_employed
+        EXCEPTIONS missing_employment = 1 ).
+      IF sy-subrc <> 0.
+        RAISE infotype_error.
+      ENDIF.
+
+      LOOP AT lt_0000 INTO DATA(ls_action)
+        WHERE begda <= lv_reference AND endda >= lv_reference
+          AND ( stat2 = '1' OR stat2 = '3' ).
+        EXIT.
+      ENDLOOP.
+      IF sy-subrc <> 0.
+        RAISE infotype_error.
+      ENDIF.
+      ls_action-begda = lv_date.
+      ls_action-endda = lv_date.
+      ls_action-stat2 = '3'. " Ungekuerzte Sollbasis
+      APPEND ls_action TO lt_plan_0000.
+
+      LOOP AT lt_0001 INTO DATA(ls_plan_org)
+        WHERE begda <= lv_reference AND endda >= lv_reference.
+        EXIT.
+      ENDLOOP.
+      IF sy-subrc <> 0.
+        RAISE schedule_error.
+      ENDIF.
+      ls_plan_org-begda = lv_date.
+      ls_plan_org-endda = lv_date.
+      APPEND ls_plan_org TO lt_plan_0001.
+
+      LOOP AT lt_0007 INTO DATA(ls_plan_time)
+        WHERE begda <= lv_reference AND endda >= lv_reference.
+        EXIT.
+      ENDLOOP.
+      IF sy-subrc <> 0.
+        RAISE schedule_error.
+      ENDIF.
+      ls_plan_time-begda = lv_date.
+      ls_plan_time-endda = lv_date.
+      APPEND ls_plan_time TO lt_plan_0007.
+
+      LOOP AT lt_0002 INTO DATA(ls_plan_person)
+        WHERE begda <= lv_reference AND endda >= lv_reference.
+        EXIT.
+      ENDLOOP.
+      IF sy-subrc = 0.
+        ls_plan_person-begda = lv_date.
+        ls_plan_person-endda = lv_date.
+        APPEND ls_plan_person TO lt_plan_0002.
+      ENDIF.
+
+      INSERT VALUE #( datum = lv_date beschaeftigt = lv_employed )
+        INTO TABLE lt_days.
+      IF lv_date = iv_endda.
+        EXIT.
+      ENDIF.
+      lv_date = lv_date + 1.
+    ENDDO.
+
+    " Vertretungen nur an realen Beschaeftigungstagen verwenden.
+    DATA lt_plan_2003 TYPE STANDARD TABLE OF p2003.
+    LOOP AT lt_2003 INTO DATA(ls_substitution).
+      LOOP AT lt_days INTO DATA(ls_employment)
+        WHERE datum >= ls_substitution-begda
+          AND datum <= ls_substitution-endda
+          AND beschaeftigt = abap_true.
+        DATA(ls_plan_substitution) = ls_substitution.
+        ls_plan_substitution-begda = ls_employment-datum.
+        ls_plan_substitution-endda = ls_employment-datum.
+        APPEND ls_plan_substitution TO lt_plan_2003.
+      ENDLOOP.
+    ENDLOOP.
+
+    " Sollbasis ohne Abwesenheiten; reale Vertretungen bleiben erhalten.
     CALL FUNCTION 'HR_PERSONAL_WORK_SCHEDULE'
       EXPORTING
         pernr           = iv_pernr
@@ -187,13 +301,13 @@ CLASS ZCL_HR_BONUS_FACTOR IMPLEMENTATION.
       IMPORTING
         warning_occured = lv_warning
       TABLES
-        i0000           = lt_0000
-        i0001           = lt_0001
-        i0002           = lt_0002
-        i0007           = lt_0007
+        i0000           = lt_plan_0000
+        i0001           = lt_plan_0001
+        i0002           = lt_plan_0002
+        i0007           = lt_plan_0007
         i2001           = lt_no_abs
         i2002           = lt_no_att
-        i2003           = lt_2003
+        i2003           = lt_plan_2003
         perws           = lt_perws
       EXCEPTIONS
         error_occured   = 1
@@ -229,37 +343,32 @@ CLASS ZCL_HR_BONUS_FACTOR IMPLEMENTATION.
         RAISE schedule_error.
       ENDIF.
 
-      DATA(ls_day) = VALUE ty_day(
-        datum       = lv_date
-        tprog       = ls_plan-tprog
-        sollstunden = ls_plan-stdaz ).
+      READ TABLE lt_days INTO DATA(ls_day)
+        WITH TABLE KEY datum = lv_date.
+      ls_day-tprog = ls_plan-tprog.
+      ls_day-sollstunden = ls_plan-stdaz.
       IF ls_plan-stdaz > 0.
         ls_day-solltag = 1.
+        IF ls_day-beschaeftigt = abap_false.
+          ls_day-ausserhalb_tag = 1.
+          ls_day-unbezahlt_tag = 1.
+        ELSE.
         LOOP AT lt_2001 INTO DATA(ls_absence)
           WHERE begda <= lv_date AND endda >= lv_date.
           LOOP AT lt_unpaid TRANSPORTING NO FIELDS
             WHERE awart = ls_absence-awart
               AND begda <= lv_date AND endda >= lv_date.
             ls_day-unbezahlt_tag = 1.
+            ls_day-abwesenheit_tag = 1.
             EXIT.
           ENDLOOP.
           IF ls_day-unbezahlt_tag = 1.
             EXIT. " Jeden Arbeitstag hoechstens einmal kuerzen
           ENDIF.
         ENDLOOP.
+        ENDIF.
       ENDIF.
-      INSERT ls_day INTO TABLE lt_days.
-
-      lv_month = lv_date(6).
-      READ TABLE lt_months ASSIGNING FIELD-SYMBOL(<month>)
-        WITH TABLE KEY monat = lv_month.
-      IF sy-subrc <> 0.
-        INSERT VALUE #( monat = lv_month )
-          INTO TABLE lt_months ASSIGNING <month>.
-      ENDIF.
-      <month>-solltage = <month>-solltage + ls_day-solltag.
-      <month>-unbezahlte_tage =
-        <month>-unbezahlte_tage + ls_day-unbezahlt_tag.
+      MODIFY TABLE lt_days FROM ls_day.
 
       IF lv_date = iv_endda.
         EXIT.
@@ -267,22 +376,81 @@ CLASS ZCL_HR_BONUS_FACTOR IMPLEMENTATION.
       lv_date = lv_date + 1.
     ENDDO.
 
-    LOOP AT lt_months ASSIGNING <month>.
+    lt_months = summarize_days( lt_days ).
+    et_days = lt_days.
+    et_months = lt_months.
+  ENDMETHOD.
+
+
+
+  METHOD summarize_days.
+    DATA lv_month TYPE n LENGTH 6.
+    LOOP AT it_days INTO DATA(ls_day).
+      lv_month = ls_day-datum(6).
+      READ TABLE rt_months ASSIGNING FIELD-SYMBOL(<month>)
+        WITH TABLE KEY monat = lv_month.
+      IF sy-subrc <> 0.
+        INSERT VALUE #( monat = lv_month )
+          INTO TABLE rt_months ASSIGNING <month>.
+      ENDIF.
+      <month>-solltage = <month>-solltage + ls_day-solltag.
+      <month>-unbezahlte_tage =
+        <month>-unbezahlte_tage + ls_day-unbezahlt_tag.
+      <month>-ausserhalb_tage =
+        <month>-ausserhalb_tage + ls_day-ausserhalb_tag.
+      <month>-abwesenheit_tage =
+        <month>-abwesenheit_tage + ls_day-abwesenheit_tag.
+      IF ls_day-beschaeftigt = abap_true.
+        <month>-beschaeftigungstage = <month>-beschaeftigungstage + 1.
+      ENDIF.
+
+    ENDLOOP.
+    LOOP AT rt_months ASSIGNING <month>.
       <month>-anrechenbar =
         <month>-solltage - <month>-unbezahlte_tage.
       IF <month>-solltage > 0.
         <month>-faktor = CONV decfloat34( <month>-anrechenbar )
                         / CONV decfloat34( <month>-solltage ).
         <month>-faktor_gueltig = abap_true.
+      ELSEIF <month>-beschaeftigungstage = 0.
+        " Ganzer Monat ohne Beschaeftigung: auch bei 0 Solltagen Faktor 0.
+        <month>-faktor = 0.
+        <month>-faktor_gueltig = abap_true.
       ELSE.
-        " Ohne Solltage ist der Faktor nicht definiert.
+        " Ohne Solltage waehrend Beschaeftigung ist kein Quotient definiert.
         CLEAR: <month>-faktor, <month>-faktor_gueltig.
       ENDIF.
     ENDLOOP.
-    et_days = lt_days.
-    et_months = lt_months.
   ENDMETHOD.
 
+  METHOD get_employment_reference.
+    DATA: lv_previous TYPE d, lv_next TYPE d.
+    CLEAR: ev_reference, ev_employed.
+    LOOP AT it_actions INTO DATA(ls_action)
+      WHERE sprps = space AND ( stat2 = '1' OR stat2 = '3' ).
+      IF ls_action-begda <= iv_date AND ls_action-endda >= iv_date.
+        ev_reference = iv_date.
+        ev_employed = abap_true.
+        RETURN.
+      ENDIF.
+      IF ls_action-endda < iv_date AND ls_action-endda > lv_previous.
+        lv_previous = ls_action-endda.
+      ENDIF.
+      IF ls_action-begda > iv_date.
+        IF lv_next IS INITIAL OR ls_action-begda < lv_next.
+          lv_next = ls_action-begda.
+        ENDIF.
+      ENDIF.
+    ENDLOOP.
+    IF lv_previous IS NOT INITIAL.
+      ev_reference = lv_previous.
+    ELSEIF lv_next IS NOT INITIAL.
+      ev_reference = lv_next.
+    ELSE.
+      " Kein belegtes Arbeitsverhaeltnis: keine erfundene Planbasis.
+      RAISE missing_employment.
+    ENDIF.
+  ENDMETHOD.
 
   METHOD get_unpaid_awart.
     " KLBEW verbindet Abwesenheitsart und Bewertungsregel.

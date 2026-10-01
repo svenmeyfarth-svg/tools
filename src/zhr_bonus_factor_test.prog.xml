@@ -17,7 +17,7 @@
     </item>
     <item>
      <ID>S</ID>
-     <KEY>P_PERNR</KEY>
+     <KEY>S_PERNR</KEY>
      <ENTRY>Personalnummer</ENTRY>
      <LENGTH>22</LENGTH>
     </item>

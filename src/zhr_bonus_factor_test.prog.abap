@@ -1,43 +1,61 @@
 REPORT zhr_bonus_factor_test.
 
-DATA gv_awart TYPE p2001-awart.
+DATA: gv_pernr TYPE pernr_d,
+      gv_awart TYPE p2001-awart.
 
+SELECT-OPTIONS s_pernr FOR gv_pernr DEFAULT '00050209' OBLIGATORY.
 PARAMETERS:
-  p_pernr TYPE pernr_d DEFAULT '00050209' OBLIGATORY,
   p_begda TYPE begda DEFAULT '20260101' OBLIGATORY,
   p_endda TYPE endda DEFAULT '20261231' OBLIGATORY.
 
-" Leer: alle ueber T554C-REF01 ermittelten unbezahlten Arten.
-" Gefuellt: zusaetzliche Einschraenkung, keine Bewertungsuebersteuerung.
+" Leer: alle unbezahlten Arten laut T554C-REF01.
+" Zeiten ausserhalb der Beschaeftigung werden immer gekuerzt.
 SELECT-OPTIONS s_awart FOR gv_awart.
-
 PARAMETERS:
   p_month RADIOBUTTON GROUP view DEFAULT 'X',
   p_day   RADIOBUTTON GROUP view.
 
+TYPES: BEGIN OF ty_month_row.
+TYPES pernr TYPE pernr_d.
+INCLUDE TYPE zcl_hr_bonus_factor=>ty_month.
+TYPES meldung TYPE c LENGTH 120.
+TYPES END OF ty_month_row.
+
+TYPES: BEGIN OF ty_day_row.
+TYPES pernr TYPE pernr_d.
+INCLUDE TYPE zcl_hr_bonus_factor=>ty_day.
+TYPES meldung TYPE c LENGTH 120.
+TYPES END OF ty_day_row.
+
+TYPES:
+  BEGIN OF ty_label,
+    name TYPE lvc_fname,
+    short TYPE scrtext_s,
+    medium TYPE scrtext_m,
+    long TYPE scrtext_l,
+  END OF ty_label,
+  ty_t_labels TYPE STANDARD TABLE OF ty_label WITH DEFAULT KEY.
+
 AT SELECTION-SCREEN.
   IF p_begda > p_endda OR p_begda(4) <> p_endda(4).
-    MESSAGE 'Beginn und Ende muessen geordnet im selben Jahr liegen'
-      TYPE 'E'.
+    MESSAGE 'Beginn und Ende muessen geordnet im selben Jahr liegen' TYPE 'E'.
   ENDIF.
 
 START-OF-SELECTION.
   DATA:
-    lt_awart   TYPE zcl_hr_bonus_factor=>ty_t_awart,
-    lt_months  TYPE zcl_hr_bonus_factor=>ty_t_month,
-    lt_days    TYPE zcl_hr_bonus_factor=>ty_t_day,
-    lt_out_mon TYPE STANDARD TABLE OF zcl_hr_bonus_factor=>ty_month,
-    lt_out_day TYPE STANDARD TABLE OF zcl_hr_bonus_factor=>ty_day,
-    lo_alv     TYPE REF TO cl_salv_table.
+    lt_awart TYPE zcl_hr_bonus_factor=>ty_t_awart,
+    lt_months TYPE zcl_hr_bonus_factor=>ty_t_month,
+    lt_days TYPE zcl_hr_bonus_factor=>ty_t_day,
+    lt_out_mon TYPE STANDARD TABLE OF ty_month_row,
+    lt_out_day TYPE STANDARD TABLE OF ty_day_row,
+    ls_out_mon TYPE ty_month_row,
+    ls_out_day TYPE ty_day_row,
+    lv_message TYPE c LENGTH 120,
+    lo_alv TYPE REF TO cl_salv_table.
 
-  " Intervalle, Einzelwerte und Ausschluesse gegen Customizing aufloesen.
-  " DISTINCT vermeidet doppelte Schluessel verschiedener Gruppierungen.
   IF s_awart[] IS NOT INITIAL.
-    SELECT DISTINCT subty
-      FROM t554s
-      WHERE subty IN @s_awart
-      INTO TABLE @lt_awart.
-
+    SELECT DISTINCT subty FROM t554s
+      WHERE subty IN @s_awart INTO TABLE @lt_awart.
     IF lt_awart IS INITIAL.
       MESSAGE 'Keine Abwesenheitsart passt zur Selektion in T554S'
         TYPE 'S' DISPLAY LIKE 'E'.
@@ -45,98 +63,124 @@ START-OF-SELECTION.
     ENDIF.
   ENDIF.
 
-  zcl_hr_bonus_factor=>get_factors(
-    EXPORTING
-      iv_pernr        = p_pernr
-      iv_begda        = p_begda
-      iv_endda        = p_endda
-      it_unpaid_awart = lt_awart
-      iv_modif        = '01'
-    IMPORTING
-      et_months       = lt_months
-      et_days         = lt_days
-    EXCEPTIONS
-      invalid_input   = 1
-      infotype_error  = 2
-      schedule_error  = 3
-      customizing_error = 4
-      OTHERS          = 5 ).
+  " Nur Kandidaten ermitteln. Infotypdaten liest die Klasse ueber HR-API.
+  " Keine Datumseinschraenkung: auch vor Eintritt/nach Austritt auswerten.
+  SELECT DISTINCT pernr FROM pa0000
+    WHERE pernr IN @s_pernr
+    INTO TABLE @DATA(lt_pernr).
+  SORT lt_pernr BY pernr.
+  IF lt_pernr IS INITIAL.
+    MESSAGE 'Keine Personalnummer passt zur Auswahl'
+      TYPE 'S' DISPLAY LIKE 'E'.
+    RETURN.
+  ENDIF.
 
-  CASE sy-subrc.
-    WHEN 1.
-      MESSAGE 'Ungueltige Personalnummer, Datumsgrenzen oder Abwesenheitsarten'
-        TYPE 'S' DISPLAY LIKE 'E'.
-      RETURN.
-    WHEN 2.
-      MESSAGE 'Fehler beim Lesen der Infotypen; leere Infotypen sind erlaubt'
-        TYPE 'S' DISPLAY LIKE 'E'.
-      RETURN.
-    WHEN 3.
-      MESSAGE 'Arbeitszeitplan unvollstaendig oder SAP-Planerzeugung fehlerhaft'
-        TYPE 'S' DISPLAY LIKE 'E'.
-      RETURN.
-    WHEN 4.
-      MESSAGE 'Organisatorische Zuordnung fehlt im Customizing T001P'
-        TYPE 'S' DISPLAY LIKE 'E'.
-      RETURN.
-    WHEN 5.
-      MESSAGE 'Unerwarteter Fehler bei der Faktorberechnung'
-        TYPE 'S' DISPLAY LIKE 'E'.
-      RETURN.
-  ENDCASE.
+  LOOP AT lt_pernr INTO DATA(ls_pernr).
+    CLEAR: lt_months, lt_days, lv_message, ls_out_mon, ls_out_day.
+    zcl_hr_bonus_factor=>get_factors(
+      EXPORTING
+        iv_pernr          = ls_pernr-pernr
+        iv_begda          = p_begda
+        iv_endda          = p_endda
+        it_unpaid_awart   = lt_awart
+        iv_modif          = '01'
+      IMPORTING
+        et_months         = lt_months
+        et_days           = lt_days
+      EXCEPTIONS
+        invalid_input     = 1
+        infotype_error    = 2
+        schedule_error    = 3
+        customizing_error = 4
+        OTHERS            = 5 ).
+
+    CASE sy-subrc.
+      WHEN 1.
+        lv_message = 'Ungueltige Eingabe'.
+      WHEN 2.
+        lv_message = 'Infotyp-Lesefehler oder kein belegtes Arbeitsverhaeltnis in IT0000'.
+      WHEN 3.
+        lv_message = 'Arbeitszeitplan nicht erzeugbar; insbesondere IT0001/0007 und Planpruefung beachten'.
+      WHEN 4.
+        lv_message = 'Organisatorische Zuordnung fehlt in T001P'.
+      WHEN 5.
+        lv_message = 'Unerwarteter Fehler bei der Faktorberechnung'.
+    ENDCASE.
+
+    IF lv_message IS NOT INITIAL.
+      " Fehler nur fuer diese Person; die weiteren Personen weiterbearbeiten.
+      ls_out_mon-pernr = ls_pernr-pernr.
+      ls_out_mon-meldung = lv_message.
+      APPEND ls_out_mon TO lt_out_mon.
+      ls_out_day-pernr = ls_pernr-pernr.
+      ls_out_day-meldung = lv_message.
+      APPEND ls_out_day TO lt_out_day.
+      CONTINUE.
+    ENDIF.
+
+    LOOP AT lt_months INTO DATA(ls_month).
+      ls_out_mon = CORRESPONDING #( ls_month ).
+      ls_out_mon-pernr = ls_pernr-pernr.
+      IF ls_month-faktor_gueltig = abap_false.
+        ls_out_mon-meldung = 'Kein Faktor: keine Soll-Arbeitstage bei bestehender Beschaeftigung'.
+      ENDIF.
+      APPEND ls_out_mon TO lt_out_mon.
+    ENDLOOP.
+    LOOP AT lt_days INTO DATA(ls_day).
+      ls_out_day = CORRESPONDING #( ls_day ).
+      ls_out_day-pernr = ls_pernr-pernr.
+      APPEND ls_out_day TO lt_out_day.
+    ENDLOOP.
+  ENDLOOP.
 
   TRY.
       IF p_month = abap_true.
-        lt_out_mon = lt_months.
         cl_salv_table=>factory(
           IMPORTING r_salv_table = lo_alv
-          CHANGING  t_table      = lt_out_mon ).
+          CHANGING t_table = lt_out_mon ).
       ELSE.
-        lt_out_day = lt_days.
         cl_salv_table=>factory(
           IMPORTING r_salv_table = lo_alv
-          CHANGING  t_table      = lt_out_day ).
+          CHANGING t_table = lt_out_day ).
       ENDIF.
-
       lo_alv->get_functions( )->set_all( abap_true ).
       lo_alv->get_columns( )->set_optimize( abap_true ).
       lo_alv->get_display_settings( )->set_list_header(
-        |Pernr { p_pernr }: { p_begda DATE = USER } - { p_endda DATE = USER }| ).
+        |Einmalzahlung: { p_begda DATE = USER } - { p_endda DATE = USER }| ).
 
-      IF p_month = abap_true.
-        DATA(lo_column) = lo_alv->get_columns( )->get_column( 'MONAT' ).
-        lo_column->set_long_text( 'Monat (JJJJMM)' ).
-        lo_column->set_medium_text( 'Monat (JJJJMM)' ).
-        lo_column->set_short_text( 'Monat' ).
+      DATA(lt_labels) = VALUE ty_t_labels(
+        ( name = 'PERNR' short = 'Pers.-Nr.' medium = 'Personalnummer' long = 'Personalnummer' )
+        ( name = 'MONAT' short = 'Monat' medium = 'Monat (JJJJMM)' long = 'Monat (JJJJMM)' )
+        ( name = 'SOLLTAGE' short = 'Solltage' medium = 'Soll-Arbeitstage' long = 'Soll-Arbeitstage im Auswertungszeitraum' )
+        ( name = 'UNBEZAHLTE_TAGE' short = 'Unbezahlt' medium = 'Unbezahlt gesamt' long = 'Unbezahlte Arbeitstage insgesamt' )
+        ( name = 'AUSSERHALB_TAGE' short = 'Ausserhalb' medium = 'Ausserhalb Vertrag' long = 'Davon ausserhalb der Beschaeftigung' )
+        ( name = 'ABWESENHEIT_TAGE' short = 'Abwesenh.' medium = 'Unbezahlte Abw.' long = 'Davon unbezahlte ganzt. Abwesenheiten' )
+        ( name = 'BESCHAEFTIGUNGSTAGE' short = 'Kal.-Tage' medium = 'Kal.-Tage im Vertrag' long = 'Kalendertage mit Beschaeftigung' )
+        ( name = 'ANRECHENBAR' short = 'Anrechenb.' medium = 'Anrechenbare Tage' long = 'Anrechenbare Arbeitstage' )
+        ( name = 'FAKTOR' short = 'Faktor' medium = 'Auszahlungsfaktor' long = 'Auszahlungsfaktor (0 bis 1)' )
+        ( name = 'FAKTOR_GUELTIG' short = 'Gueltig' medium = 'Faktor gueltig' long = 'Faktor gueltig (X = ja)' )
+        ( name = 'DATUM' short = 'Datum' medium = 'Datum' long = 'Kalendertag' )
+        ( name = 'TPROG' short = 'Tagesplan' medium = 'Tagesarbeitszeitplan' long = 'Tagesarbeitszeitplan' )
+        ( name = 'SOLLSTUNDEN' short = 'Sollstd.' medium = 'Sollstunden' long = 'Geplante Arbeitsstunden' )
+        ( name = 'SOLLTAG' short = 'Solltag' medium = 'Soll-Arbeitstag' long = 'Soll-Arbeitstag (1 = ja)' )
+        ( name = 'UNBEZAHLT_TAG' short = 'Unbezahlt' medium = 'Unbezahlter Tag' long = 'Unbezahlter Arbeitstag (1 = ja)' )
+        ( name = 'BESCHAEFTIGT' short = 'Im Vertrag' medium = 'Beschaeftigt' long = 'In Beschaeftigung (X = ja)' )
+        ( name = 'AUSSERHALB_TAG' short = 'Ausserhalb' medium = 'Ausserhalb Vertrag' long = 'Arbeitstag ausserhalb Beschaeftigung' )
+        ( name = 'ABWESENHEIT_TAG' short = 'Abwesenh.' medium = 'Unbezahlte Abw.' long = 'Arbeitstag mit unbezahlter Abwesenheit' )
+        ( name = 'MELDUNG' short = 'Hinweis' medium = 'Hinweis / Fehler' long = 'Hinweis / Fehler fuer diese Person' ) ).
 
-        lo_column = lo_alv->get_columns( )->get_column( 'SOLLTAGE' ).
-        lo_column->set_long_text( 'Soll-Arbeitstage' ).
-        lo_column->set_medium_text( 'Soll-Arbeitstage' ).
-        lo_column->set_short_text( 'Solltage' ).
-
-        lo_column = lo_alv->get_columns( )->get_column( 'UNBEZAHLTE_TAGE' ).
-        lo_column->set_long_text( 'Unbezahlte ganze Arbeitstage' ).
-        lo_column->set_medium_text( 'Unbezahlte Tage' ).
-        lo_column->set_short_text( 'Unbezahlt' ).
-
-        lo_column = lo_alv->get_columns( )->get_column( 'ANRECHENBAR' ).
-        lo_column->set_long_text( 'Anrechenbare Arbeitstage' ).
-        lo_column->set_medium_text( 'Anrechenbare Tage' ).
-        lo_column->set_short_text( 'Anrechenb.' ).
-
-        lo_column = lo_alv->get_columns( )->get_column( 'FAKTOR' ).
-        lo_column->set_long_text( 'Auszahlungsfaktor (0 bis 1)' ).
-        lo_column->set_medium_text( 'Auszahlungsfaktor' ).
-        lo_column->set_short_text( 'Faktor' ).
-
-        lo_column = lo_alv->get_columns( )->get_column( 'FAKTOR_GUELTIG' ).
-        lo_column->set_long_text( 'Faktor gueltig (leer: keine Solltage)' ).
-        lo_column->set_medium_text( 'Faktor gueltig' ).
-        lo_column->set_short_text( 'Gueltig' ).
-      ENDIF.
-
+      LOOP AT lt_labels INTO DATA(ls_label).
+        TRY.
+            DATA(lo_column) = lo_alv->get_columns( )->get_column( ls_label-name ).
+            lo_column->set_short_text( ls_label-short ).
+            lo_column->set_medium_text( ls_label-medium ).
+            lo_column->set_long_text( ls_label-long ).
+          CATCH cx_salv_not_found.
+            " Spalte gehoert zur jeweils anderen Ausgabeansicht.
+        ENDTRY.
+      ENDLOOP.
       lo_alv->display( ).
-    CATCH cx_salv_msg cx_salv_not_found INTO DATA(lx_alv).
-      DATA(lv_message) = lx_alv->get_text( ).
-      MESSAGE lv_message TYPE 'S' DISPLAY LIKE 'E'.
+    CATCH cx_salv_msg INTO DATA(lx_alv).
+      DATA(lv_alv_message) = lx_alv->get_text( ).
+      MESSAGE lv_alv_message TYPE 'S' DISPLAY LIKE 'E'.
   ENDTRY.
