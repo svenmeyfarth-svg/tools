@@ -13,6 +13,7 @@ CLASS zcl_hr_bonus_factor DEFINITION
       ty_t_unpaid TYPE SORTED TABLE OF ty_unpaid
         WITH UNIQUE KEY awart begda endda,
       ty_t_actions TYPE STANDARD TABLE OF p0000 WITH DEFAULT KEY,
+      ty_t_pay TYPE STANDARD TABLE OF p0008 WITH DEFAULT KEY,
       BEGIN OF ty_day,
         datum         TYPE d,
         tprog         TYPE ptpsp-tprog,
@@ -22,6 +23,10 @@ CLASS zcl_hr_bonus_factor DEFINITION
         beschaeftigt  TYPE abap_bool,
         ausserhalb_tag TYPE i,
         abwesenheit_tag TYPE i,
+        bsgrd TYPE p0008-bsgrd,
+        bsgrd_gueltig TYPE abap_bool,
+        awart TYPE string,
+        atext TYPE string,
       END OF ty_day,
       ty_t_day TYPE SORTED TABLE OF ty_day WITH UNIQUE KEY datum,
       BEGIN OF ty_month,
@@ -32,12 +37,24 @@ CLASS zcl_hr_bonus_factor DEFINITION
         abwesenheit_tage TYPE i,
         beschaeftigungstage TYPE i,
         anrechenbar     TYPE i,
+        gewichtet TYPE decfloat34,
+        bsgrd_durchschnitt TYPE decfloat34,
+        bsgrd_fehlende_tage TYPE i,
         faktor          TYPE decfloat34,
         faktor_gueltig  TYPE abap_bool,
       END OF ty_month,
       ty_t_month TYPE SORTED TABLE OF ty_month WITH UNIQUE KEY monat.
 
-    " Referenzdatum fuer den Sollplan; STAT2 1 ist kein Austritt.
+    " Tagesgueltiger Beschaeftigungsgrad, ohne pauschale 100%-Annahme.
+    CLASS-METHODS get_employment_percent
+      IMPORTING
+        it_pay TYPE ty_t_pay
+        iv_date TYPE d
+      EXPORTING
+        ev_percent TYPE p0008-bsgrd
+        ev_valid TYPE abap_bool.
+
+    " Monatsfaktor aus tagesgenau gewichteten anrechenbaren Arbeitstagen.
     CLASS-METHODS summarize_days
       IMPORTING it_days TYPE ty_t_day
       RETURNING VALUE(rt_months) TYPE ty_t_month.
@@ -105,6 +122,7 @@ CLASS ZCL_HR_BONUS_FACTOR IMPLEMENTATION.
       lt_0001    TYPE STANDARD TABLE OF p0001,
       lt_0002    TYPE STANDARD TABLE OF p0002,
       lt_0007    TYPE STANDARD TABLE OF p0007,
+      lt_0008    TYPE ty_t_pay,
       lt_2001    TYPE STANDARD TABLE OF p2001,
       lt_2003    TYPE STANDARD TABLE OF p2003,
       lt_no_abs  TYPE STANDARD TABLE OF p2001,
@@ -176,6 +194,7 @@ CLASS ZCL_HR_BONUS_FACTOR IMPLEMENTATION.
     " gebraucht. Bewegungsdaten nur fuer den angeforderten Zeitraum.
     lv_read_begda = iv_begda.
     lv_read_endda = iv_endda.
+    read_it '0008' lt_0008.
     read_it '2001' lt_2001.
     read_it '2003' lt_2003.
 
@@ -208,6 +227,14 @@ CLASS ZCL_HR_BONUS_FACTOR IMPLEMENTATION.
         iv_endda = lv_to ).
       INSERT LINES OF lt_org_unpaid INTO TABLE lt_unpaid.
     ENDLOOP.
+
+    TYPES: BEGIN OF ty_day_group,
+             datum TYPE d,
+             moabw TYPE t001p-moabw,
+           END OF ty_day_group.
+    DATA lt_day_group TYPE SORTED TABLE OF ty_day_group WITH UNIQUE KEY datum.
+    SELECT * FROM t554t WHERE sprsl = @sy-langu
+      INTO TABLE @DATA(lt_abs_texts).
 
     " Nur lokale Kopien fuer die Planerzeugung. Keine Stammdatenpflege!
     " Vor dem ersten Eintritt: erste Beschaeftigungsregel.
@@ -243,6 +270,14 @@ CLASS ZCL_HR_BONUS_FACTOR IMPLEMENTATION.
       IF sy-subrc <> 0.
         RAISE schedule_error.
       ENDIF.
+      SELECT SINGLE moabw FROM t001p
+        WHERE werks = @ls_plan_org-werks AND btrtl = @ls_plan_org-btrtl
+        INTO @DATA(lv_moabw).
+      IF sy-subrc <> 0.
+        RAISE customizing_error.
+      ENDIF.
+      INSERT VALUE #( datum = lv_date moabw = lv_moabw )
+        INTO TABLE lt_day_group.
       ls_plan_org-begda = lv_date.
       ls_plan_org-endda = lv_date.
       APPEND ls_plan_org TO lt_plan_0001.
@@ -347,25 +382,52 @@ CLASS ZCL_HR_BONUS_FACTOR IMPLEMENTATION.
         WITH TABLE KEY datum = lv_date.
       ls_day-tprog = ls_plan-tprog.
       ls_day-sollstunden = ls_plan-stdaz.
+      IF ls_day-beschaeftigt = abap_true.
+        get_employment_percent(
+          EXPORTING it_pay = lt_0008 iv_date = lv_date
+          IMPORTING ev_percent = ls_day-bsgrd
+                    ev_valid = ls_day-bsgrd_gueltig ).
+      ENDIF.
+
+      " Alle passenden ganzen Abwesenheiten anzeigen, auch an freien Tagen.
+      " Mehrere Arten werden eindeutig aufgelistet, Tage nie vervielfacht.
+      DATA lt_day_awart TYPE ty_t_awart.
+      CLEAR lt_day_awart.
+      READ TABLE lt_day_group INTO DATA(ls_day_group)
+        WITH TABLE KEY datum = lv_date.
+      LOOP AT lt_2001 INTO DATA(ls_absence)
+        WHERE begda <= lv_date AND endda >= lv_date.
+        LOOP AT lt_unpaid TRANSPORTING NO FIELDS
+          WHERE awart = ls_absence-awart
+            AND begda <= lv_date AND endda >= lv_date.
+          INSERT ls_absence-awart INTO TABLE lt_day_awart.
+          EXIT.
+        ENDLOOP.
+      ENDLOOP.
+      LOOP AT lt_day_awart INTO DATA(lv_awart).
+        READ TABLE lt_abs_texts INTO DATA(ls_abs_text)
+          WITH KEY moabw = ls_day_group-moabw awart = lv_awart.
+        DATA(lv_abs_text) = CONV string( 'Text nicht gepflegt' ).
+        IF sy-subrc = 0.
+          lv_abs_text = ls_abs_text-atext.
+        ENDIF.
+        IF ls_day-awart IS INITIAL.
+          ls_day-awart = lv_awart.
+          ls_day-atext = |{ lv_awart }: { lv_abs_text }|.
+        ELSE.
+          ls_day-awart = |{ ls_day-awart }; { lv_awart }|.
+          ls_day-atext = |{ ls_day-atext }; { lv_awart }: { lv_abs_text }|.
+        ENDIF.
+      ENDLOOP.
+
       IF ls_plan-stdaz > 0.
         ls_day-solltag = 1.
         IF ls_day-beschaeftigt = abap_false.
           ls_day-ausserhalb_tag = 1.
           ls_day-unbezahlt_tag = 1.
-        ELSE.
-        LOOP AT lt_2001 INTO DATA(ls_absence)
-          WHERE begda <= lv_date AND endda >= lv_date.
-          LOOP AT lt_unpaid TRANSPORTING NO FIELDS
-            WHERE awart = ls_absence-awart
-              AND begda <= lv_date AND endda >= lv_date.
-            ls_day-unbezahlt_tag = 1.
-            ls_day-abwesenheit_tag = 1.
-            EXIT.
-          ENDLOOP.
-          IF ls_day-unbezahlt_tag = 1.
-            EXIT. " Jeden Arbeitstag hoechstens einmal kuerzen
-          ENDIF.
-        ENDLOOP.
+        ELSEIF lt_day_awart IS NOT INITIAL.
+          ls_day-unbezahlt_tag = 1.
+          ls_day-abwesenheit_tag = 1.
         ENDIF.
       ENDIF.
       MODIFY TABLE lt_days FROM ls_day.
@@ -403,14 +465,31 @@ CLASS ZCL_HR_BONUS_FACTOR IMPLEMENTATION.
       IF ls_day-beschaeftigt = abap_true.
         <month>-beschaeftigungstage = <month>-beschaeftigungstage + 1.
       ENDIF.
+      " Unbezahlte/ausserhalb liegende Tage tragen immer null bei.
+      IF ls_day-solltag = 1 AND ls_day-unbezahlt_tag = 0.
+        IF ls_day-bsgrd_gueltig = abap_true.
+          <month>-gewichtet = <month>-gewichtet
+            + CONV decfloat34( ls_day-bsgrd ) / 100.
+        ELSE.
+          <month>-bsgrd_fehlende_tage = <month>-bsgrd_fehlende_tage + 1.
+        ENDIF.
+      ENDIF.
 
     ENDLOOP.
     LOOP AT rt_months ASSIGNING <month>.
       <month>-anrechenbar =
         <month>-solltage - <month>-unbezahlte_tage.
-      IF <month>-solltage > 0.
-        <month>-faktor = CONV decfloat34( <month>-anrechenbar )
+      IF <month>-bsgrd_fehlende_tage > 0.
+        " Keine Teilsumme als vollstaendiges Ergebnis ausgeben.
+        CLEAR: <month>-gewichtet, <month>-bsgrd_durchschnitt,
+               <month>-faktor, <month>-faktor_gueltig.
+      ELSEIF <month>-solltage > 0.
+        <month>-faktor = <month>-gewichtet
                         / CONV decfloat34( <month>-solltage ).
+        IF <month>-anrechenbar > 0.
+          <month>-bsgrd_durchschnitt = <month>-gewichtet * 100
+            / CONV decfloat34( <month>-anrechenbar ).
+        ENDIF.
         <month>-faktor_gueltig = abap_true.
       ELSEIF <month>-beschaeftigungstage = 0.
         " Ganzer Monat ohne Beschaeftigung: auch bei 0 Solltagen Faktor 0.
@@ -420,6 +499,24 @@ CLASS ZCL_HR_BONUS_FACTOR IMPLEMENTATION.
         " Ohne Solltage waehrend Beschaeftigung ist kein Quotient definiert.
         CLEAR: <month>-faktor, <month>-faktor_gueltig.
       ENDIF.
+    ENDLOOP.
+  ENDMETHOD.
+
+  METHOD get_employment_percent.
+    CLEAR: ev_percent, ev_valid.
+    LOOP AT it_pay INTO DATA(ls_pay)
+      WHERE begda <= iv_date AND endda >= iv_date AND sprps = space.
+      IF ls_pay-bsgrd < 0.
+        CLEAR: ev_percent, ev_valid.
+        RETURN.
+      ENDIF.
+      " Mehrere gueltige Saetze duerfen keinen widerspruechlichen Grad haben.
+      IF ev_valid = abap_true AND ev_percent <> ls_pay-bsgrd.
+        CLEAR: ev_percent, ev_valid.
+        RETURN.
+      ENDIF.
+      ev_percent = ls_pay-bsgrd.
+      ev_valid = abap_true.
     ENDLOOP.
   ENDMETHOD.
 

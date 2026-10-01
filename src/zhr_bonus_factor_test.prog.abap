@@ -121,7 +121,9 @@ START-OF-SELECTION.
     LOOP AT lt_months INTO DATA(ls_month).
       ls_out_mon = CORRESPONDING #( ls_month ).
       ls_out_mon-pernr = ls_pernr-pernr.
-      IF ls_month-faktor_gueltig = abap_false.
+      IF ls_month-bsgrd_fehlende_tage > 0.
+        ls_out_mon-meldung = 'Kein Faktor: IT0008 fehlt oder enthaelt widerspruechliche Beschaeftigungsgrade'.
+      ELSEIF ls_month-faktor_gueltig = abap_false.
         ls_out_mon-meldung = 'Kein Faktor: keine Soll-Arbeitstage bei bestehender Beschaeftigung'.
       ENDIF.
       APPEND ls_out_mon TO lt_out_mon.
@@ -129,6 +131,9 @@ START-OF-SELECTION.
     LOOP AT lt_days INTO DATA(ls_day).
       ls_out_day = CORRESPONDING #( ls_day ).
       ls_out_day-pernr = ls_pernr-pernr.
+      IF ls_day-beschaeftigt = abap_true AND ls_day-bsgrd_gueltig = abap_false.
+        ls_out_day-meldung = 'Kein eindeutiger gueltiger Beschaeftigungsgrad aus IT0008'.
+      ENDIF.
       APPEND ls_out_day TO lt_out_day.
     ENDLOOP.
   ENDLOOP.
@@ -157,7 +162,7 @@ START-OF-SELECTION.
         ( name = 'ABWESENHEIT_TAGE' short = 'Abwesenh.' medium = 'Unbezahlte Abw.' long = 'Davon unbezahlte ganzt. Abwesenheiten' )
         ( name = 'BESCHAEFTIGUNGSTAGE' short = 'Kal.-Tage' medium = 'Kal.-Tage im Vertrag' long = 'Kalendertage mit Beschaeftigung' )
         ( name = 'ANRECHENBAR' short = 'Anrechenb.' medium = 'Anrechenbare Tage' long = 'Anrechenbare Arbeitstage' )
-        ( name = 'FAKTOR' short = 'Faktor' medium = 'Auszahlungsfaktor' long = 'Auszahlungsfaktor (0 bis 1)' )
+        ( name = 'FAKTOR' short = 'Faktor' medium = 'Auszahlungsfaktor' long = 'Auszahlungsfaktor inkl. Beschaeft.grad' )
         ( name = 'FAKTOR_GUELTIG' short = 'Gueltig' medium = 'Faktor gueltig' long = 'Faktor gueltig (X = ja)' )
         ( name = 'DATUM' short = 'Datum' medium = 'Datum' long = 'Kalendertag' )
         ( name = 'TPROG' short = 'Tagesplan' medium = 'Tagesarbeitszeitplan' long = 'Tagesarbeitszeitplan' )
@@ -167,6 +172,13 @@ START-OF-SELECTION.
         ( name = 'BESCHAEFTIGT' short = 'Im Vertrag' medium = 'Beschaeftigt' long = 'In Beschaeftigung (X = ja)' )
         ( name = 'AUSSERHALB_TAG' short = 'Ausserhalb' medium = 'Ausserhalb Vertrag' long = 'Arbeitstag ausserhalb Beschaeftigung' )
         ( name = 'ABWESENHEIT_TAG' short = 'Abwesenh.' medium = 'Unbezahlte Abw.' long = 'Arbeitstag mit unbezahlter Abwesenheit' )
+        ( name = 'BSGRD' short = 'Beschgr.%' medium = 'Beschaeft.grad %' long = 'Beschaeftigungsgrad IT0008 in Prozent' )
+        ( name = 'BSGRD_GUELTIG' short = 'Grad OK' medium = 'Beschaeft.grad OK' long = 'Gueltiger IT0008-Beschaeftigungsgrad' )
+        ( name = 'GEWICHTET' short = 'Gew.Tage' medium = 'Gewichtete Tage' long = 'Mit Beschaeftigungsgrad gewichtete Tage' )
+        ( name = 'BSGRD_DURCHSCHNITT' short = 'Durchs.%' medium = 'Durchschn. Grad %' long = 'Durchschnitt % anrechenbarer Arbeitstage' )
+        ( name = 'BSGRD_FEHLENDE_TAGE' short = 'IT8 fehlt' medium = 'Tage ohne IT8-Grad' long = 'Anrechenbare Tage ohne IT0008-Grad' )
+        ( name = 'AWART' short = 'Abw.-Art' medium = 'Abwesenheitsarten' long = 'Unbezahlte Abwesenheitsarten' )
+        ( name = 'ATEXT' short = 'Abw.-Text' medium = 'Abwesenheitstexte' long = 'Texte der unbezahlten Abwesenheitsarten' )
         ( name = 'MELDUNG' short = 'Hinweis' medium = 'Hinweis / Fehler' long = 'Hinweis / Fehler fuer diese Person' ) ).
 
       LOOP AT lt_labels INTO DATA(ls_label).

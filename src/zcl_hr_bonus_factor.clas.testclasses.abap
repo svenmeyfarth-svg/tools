@@ -6,6 +6,9 @@ CLASS ltc_bonus_factor DEFINITION FINAL FOR TESTING
     METHODS no_history_is_error FOR TESTING.
     METHODS monthly_deductions FOR TESTING.
     METHODS zero_scheduled_days FOR TESTING.
+    METHODS daily_percent_changes FOR TESTING.
+    METHODS weighted_month FOR TESTING.
+    METHODS missing_percent FOR TESTING.
 ENDCLASS.
 
 CLASS ltc_bonus_factor IMPLEMENTATION.
@@ -68,8 +71,10 @@ CLASS ltc_bonus_factor IMPLEMENTATION.
       ( datum = '20260102' solltag = 1 unbezahlt_tag = 1
         abwesenheit_tag = 1 beschaeftigt = abap_true )
       ( datum = '20260103' solltag = 0 )
-      ( datum = '20260105' solltag = 1 beschaeftigt = abap_true )
-      ( datum = '20260106' solltag = 1 beschaeftigt = abap_true )
+      ( datum = '20260105' solltag = 1 beschaeftigt = abap_true
+        bsgrd = 100 bsgrd_gueltig = abap_true )
+      ( datum = '20260106' solltag = 1 beschaeftigt = abap_true
+        bsgrd = 100 bsgrd_gueltig = abap_true )
       ( datum = '20260202' solltag = 1 unbezahlt_tag = 1 ausserhalb_tag = 1 ) ).
     DATA(lt_months) = zcl_hr_bonus_factor=>summarize_days( lt_days ).
     cl_abap_unit_assert=>assert_equals( act = lines( lt_months ) exp = 2 ).
@@ -95,4 +100,62 @@ CLASS ltc_bonus_factor IMPLEMENTATION.
     cl_abap_unit_assert=>assert_true( lt_months[ monat = '202601' ]-faktor_gueltig ).
     cl_abap_unit_assert=>assert_false( lt_months[ monat = '202602' ]-faktor_gueltig ).
   ENDMETHOD.
+  METHOD daily_percent_changes.
+    DATA(lt_pay) = VALUE zcl_hr_bonus_factor=>ty_t_pay(
+      ( begda = '20260101' endda = '20260115' bsgrd = 50 )
+      ( begda = '20260116' endda = '20260131' bsgrd = 80 ) ).
+    zcl_hr_bonus_factor=>get_employment_percent(
+      EXPORTING it_pay = lt_pay iv_date = '20260115'
+      IMPORTING ev_percent = DATA(lv_percent) ev_valid = DATA(lv_valid) ).
+    cl_abap_unit_assert=>assert_equals( act = lv_percent exp = 50 ).
+    cl_abap_unit_assert=>assert_true( lv_valid ).
+    zcl_hr_bonus_factor=>get_employment_percent(
+      EXPORTING it_pay = lt_pay iv_date = '20260116'
+      IMPORTING ev_percent = lv_percent ev_valid = lv_valid ).
+    cl_abap_unit_assert=>assert_equals( act = lv_percent exp = 80 ).
+    cl_abap_unit_assert=>assert_true( lv_valid ).
+    zcl_hr_bonus_factor=>get_employment_percent(
+      EXPORTING it_pay = lt_pay iv_date = '20260201'
+      IMPORTING ev_percent = lv_percent ev_valid = lv_valid ).
+    cl_abap_unit_assert=>assert_false( lv_valid ).
+    APPEND VALUE #( begda = '20260101' endda = '20260131' bsgrd = 100 ) TO lt_pay.
+    zcl_hr_bonus_factor=>get_employment_percent(
+      EXPORTING it_pay = lt_pay iv_date = '20260115'
+      IMPORTING ev_valid = lv_valid ).
+    cl_abap_unit_assert=>assert_false( lv_valid ).
+  ENDMETHOD.
+
+  METHOD weighted_month.
+    DATA(lt_days) = VALUE zcl_hr_bonus_factor=>ty_t_day(
+      ( datum = '20260101' solltag = 1 beschaeftigt = abap_true
+        bsgrd = 50 bsgrd_gueltig = abap_true )
+      ( datum = '20260102' solltag = 1 beschaeftigt = abap_true
+        bsgrd = 100 bsgrd_gueltig = abap_true )
+      ( datum = '20260105' solltag = 1 beschaeftigt = abap_true
+        bsgrd = 80 bsgrd_gueltig = abap_true unbezahlt_tag = 1 abwesenheit_tag = 1 )
+      ( datum = '20260106' solltag = 1 unbezahlt_tag = 1 ausserhalb_tag = 1 ) ).
+    DATA(lt_months) = zcl_hr_bonus_factor=>summarize_days( lt_days ).
+    DATA(ls_month) = lt_months[ monat = '202601' ].
+    cl_abap_unit_assert=>assert_equals(
+      act = ls_month-gewichtet exp = CONV decfloat34( '1.5' ) ).
+    cl_abap_unit_assert=>assert_equals(
+      act = ls_month-faktor exp = CONV decfloat34( '0.375' ) ).
+    cl_abap_unit_assert=>assert_equals( act = ls_month-bsgrd_durchschnitt exp = 75 ).
+    cl_abap_unit_assert=>assert_true( ls_month-faktor_gueltig ).
+  ENDMETHOD.
+
+  METHOD missing_percent.
+    DATA(lt_days) = VALUE zcl_hr_bonus_factor=>ty_t_day(
+      ( datum = '20260101' solltag = 1 beschaeftigt = abap_true )
+      ( datum = '20260201' solltag = 1 beschaeftigt = abap_true
+        bsgrd = 0 bsgrd_gueltig = abap_true ) ).
+    DATA(lt_months) = zcl_hr_bonus_factor=>summarize_days( lt_days ).
+    cl_abap_unit_assert=>assert_false( lt_months[ monat = '202601' ]-faktor_gueltig ).
+    cl_abap_unit_assert=>assert_equals(
+      act = lt_months[ monat = '202601' ]-bsgrd_fehlende_tage exp = 1 ).
+    cl_abap_unit_assert=>assert_true( lt_months[ monat = '202602' ]-faktor_gueltig ).
+    cl_abap_unit_assert=>assert_equals(
+      act = lt_months[ monat = '202602' ]-faktor exp = 0 ).
+  ENDMETHOD.
+
 ENDCLASS.
