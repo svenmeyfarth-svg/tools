@@ -2,6 +2,7 @@ CLASS ltc_bonus_factor DEFINITION FINAL FOR TESTING
   DURATION SHORT RISK LEVEL HARMLESS.
   PRIVATE SECTION.
     METHODS entry_exit_reentry FOR TESTING.
+    METHODS employment_events FOR TESTING.
     METHODS inactive_is_employed FOR TESTING.
     METHODS no_history_is_error FOR TESTING.
     METHODS monthly_deductions FOR TESTING.
@@ -158,4 +159,34 @@ CLASS ltc_bonus_factor IMPLEMENTATION.
       act = lt_months[ monat = '202602' ]-faktor exp = 0 ).
   ENDMETHOD.
 
+  METHOD employment_events.
+    DATA(lt_actions) = VALUE zcl_hr_bonus_factor=>ty_t_actions(
+      ( begda = '20260101' endda = '20260114' stat2 = '3' )
+      ( begda = '20260115' endda = '20260131' stat2 = '1' )
+      ( begda = '20260201' endda = '20260310' stat2 = '3' )
+      ( begda = '20260311' endda = '20260414' stat2 = '0' )
+      ( begda = '20260415' endda = '20261231' stat2 = '3' )
+      ( begda = '20270101' endda = '99991231' stat2 = '0' ) ).
+    DATA(lt_events) = zcl_hr_bonus_factor=>get_employment_events(
+      it_actions = lt_actions iv_begda = '20260101' iv_endda = '20261231' ).
+    cl_abap_unit_assert=>assert_equals( act = lines( lt_events ) exp = 4 ).
+    cl_abap_unit_assert=>assert_true(
+      xsdbool( line_exists( lt_events[ datum = '20260101' ereignis = 'E' ] ) ) ).
+    cl_abap_unit_assert=>assert_equals(
+      act = lt_events[ datum = '20260310' ereignis = 'A' ]-statusdatum
+      exp = CONV d( '20260311' ) ).
+    cl_abap_unit_assert=>assert_true(
+      xsdbool( line_exists( lt_events[ datum = '20260415' ereignis = 'E' ] ) ) ).
+    cl_abap_unit_assert=>assert_equals(
+      act = lt_events[ datum = '20261231' ereignis = 'A' ]-statusdatum
+      exp = CONV d( '20270101' ) ).
+    lt_events = zcl_hr_bonus_factor=>get_employment_events(
+      it_actions = lt_actions iv_begda = '20260102' iv_endda = '20260309' ).
+    cl_abap_unit_assert=>assert_initial( lt_events ).
+    " Fehlender Folgesatz darf keinen erfundenen Austritt erzeugen.
+    DELETE lt_actions WHERE stat2 = '0'.
+    lt_events = zcl_hr_bonus_factor=>get_employment_events(
+      it_actions = lt_actions iv_begda = '20261231' iv_endda = '20261231' ).
+    cl_abap_unit_assert=>assert_initial( lt_events ).
+  ENDMETHOD.
 ENDCLASS.

@@ -27,6 +27,13 @@ CLASS zcl_hr_bonus_factor DEFINITION
       END OF ty_absence,
       ty_t_absence TYPE SORTED TABLE OF ty_absence
         WITH UNIQUE KEY monat begda endda awart objps seqnr atext,
+      BEGIN OF ty_event,
+        datum TYPE d,
+        ereignis TYPE c LENGTH 1,
+        bezeichnung TYPE c LENGTH 20,
+        statusdatum TYPE d,
+      END OF ty_event,
+      ty_t_events TYPE SORTED TABLE OF ty_event WITH UNIQUE KEY datum ereignis,
       ty_t_actions TYPE STANDARD TABLE OF p0000 WITH DEFAULT KEY,
       ty_t_pay TYPE STANDARD TABLE OF p0008 WITH DEFAULT KEY,
       BEGIN OF ty_day,
@@ -59,6 +66,13 @@ CLASS zcl_hr_bonus_factor DEFINITION
         faktor_gueltig  TYPE abap_bool,
       END OF ty_month,
       ty_t_month TYPE SORTED TABLE OF ty_month WITH UNIQUE KEY monat.
+
+    CLASS-METHODS get_employment_events
+      IMPORTING
+        it_actions TYPE ty_t_actions
+        iv_begda TYPE begda
+        iv_endda TYPE endda
+      RETURNING VALUE(rt_events) TYPE ty_t_events.
 
     " Tagesgueltiger Beschaeftigungsgrad, ohne pauschale 100%-Annahme.
     CLASS-METHODS get_employment_percent
@@ -107,6 +121,7 @@ CLASS zcl_hr_bonus_factor DEFINITION
         et_months       TYPE ty_t_month
         et_days         TYPE ty_t_day
         et_absences     TYPE ty_t_absence
+        et_events       TYPE ty_t_events
       EXCEPTIONS
         invalid_input
         infotype_error
@@ -158,7 +173,7 @@ CLASS ZCL_HR_BONUS_FACTOR IMPLEMENTATION.
       lv_reference TYPE d,
       lv_employed TYPE abap_bool.
 
-    CLEAR: et_months, et_days, et_absences.
+    CLEAR: et_months, et_days, et_absences, et_events.
     IF iv_pernr IS INITIAL
        OR iv_begda IS INITIAL OR iv_endda IS INITIAL
        OR iv_begda > iv_endda
@@ -510,6 +525,8 @@ CLASS ZCL_HR_BONUS_FACTOR IMPLEMENTATION.
       ENDLOOP.
     ENDLOOP.
     " Tage gelten je Abwesenheit; bei Ueberlappung nicht summieren.
+    et_events = get_employment_events(
+      it_actions = lt_0000 iv_begda = iv_begda iv_endda = iv_endda ).
     et_absences = lt_result_abs.
     et_days = lt_days.
     et_months = lt_months.
@@ -570,6 +587,70 @@ CLASS ZCL_HR_BONUS_FACTOR IMPLEMENTATION.
       ELSE.
         " Ohne Solltage waehrend Beschaeftigung ist kein Quotient definiert.
         CLEAR: <month>-faktor, <month>-faktor_gueltig.
+      ENDIF.
+    ENDLOOP.
+  ENDMETHOD.
+
+  METHOD get_employment_events.
+    TYPES: BEGIN OF ty_period,
+             begda TYPE d,
+             endda TYPE d,
+           END OF ty_period.
+    DATA lt_periods TYPE STANDARD TABLE OF ty_period.
+    DATA lt_merged TYPE STANDARD TABLE OF ty_period.
+    DATA ls_current TYPE ty_period.
+    DATA lv_next TYPE d.
+
+    " Zusammenhaengende Beschaeftigung: STAT2 1/3 gehoeren zusammen.
+    " Reine Massnahmenwechsel und Wiedereintritt am Folgetag trennen nicht.
+    LOOP AT it_actions INTO DATA(ls_action)
+      WHERE sprps = space AND ( stat2 = '1' OR stat2 = '3' ).
+      IF ls_action-begda IS INITIAL OR ls_action-begda > ls_action-endda.
+        CONTINUE.
+      ENDIF.
+      APPEND VALUE #( begda = ls_action-begda endda = ls_action-endda ) TO lt_periods.
+    ENDLOOP.
+    SORT lt_periods BY begda endda.
+    LOOP AT lt_periods INTO DATA(ls_period).
+      IF ls_current-begda IS INITIAL.
+        ls_current = ls_period.
+        CONTINUE.
+      ENDIF.
+      lv_next = ls_current-endda.
+      IF lv_next < '99991231'.
+        lv_next = lv_next + 1.
+      ENDIF.
+      IF ls_period-begda <= lv_next.
+        IF ls_period-endda > ls_current-endda.
+          ls_current-endda = ls_period-endda.
+        ENDIF.
+      ELSE.
+        APPEND ls_current TO lt_merged.
+        ls_current = ls_period.
+      ENDIF.
+    ENDLOOP.
+    IF ls_current-begda IS NOT INITIAL.
+      APPEND ls_current TO lt_merged.
+    ENDIF.
+
+    LOOP AT lt_merged INTO ls_period.
+      IF ls_period-begda >= iv_begda AND ls_period-begda <= iv_endda.
+        INSERT VALUE #( datum = ls_period-begda ereignis = 'E'
+          bezeichnung = 'Eintritt' statusdatum = ls_period-begda )
+          INTO TABLE rt_events.
+      ENDIF.
+      IF ls_period-endda >= iv_begda AND ls_period-endda <= iv_endda
+         AND ls_period-endda < '99991231'.
+        lv_next = ls_period-endda + 1.
+        " Ein fehlender Folgesatz allein belegt keinen Austritt.
+        LOOP AT it_actions TRANSPORTING NO FIELDS
+          WHERE begda <= lv_next AND endda >= lv_next AND sprps = space
+            AND ( stat2 = '0' OR stat2 = '2' ).
+          INSERT VALUE #( datum = ls_period-endda ereignis = 'A'
+            bezeichnung = 'Austritt' statusdatum = lv_next )
+            INTO TABLE rt_events.
+          EXIT.
+        ENDLOOP.
       ENDIF.
     ENDLOOP.
   ENDMETHOD.

@@ -57,6 +57,12 @@
      <ENTRY>Beruecksichtigte Abwesenheiten</ENTRY>
      <LENGTH>38</LENGTH>
     </item>
+    <item>
+     <ID>S</ID>
+     <KEY>P_EVENT</KEY>
+     <ENTRY>Ein- und Austritte</ENTRY>
+     <LENGTH>26</LENGTH>
+    </item>
    </TPOOL>
   </asx:values>
  </asx:abap>

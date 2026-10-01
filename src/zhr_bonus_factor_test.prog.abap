@@ -14,7 +14,8 @@ SELECT-OPTIONS s_awart FOR gv_awart.
 PARAMETERS:
   p_month RADIOBUTTON GROUP view DEFAULT 'X',
   p_day   RADIOBUTTON GROUP view,
-  p_abs   RADIOBUTTON GROUP view.
+  p_abs   RADIOBUTTON GROUP view,
+  p_event RADIOBUTTON GROUP view.
 
 TYPES: BEGIN OF ty_month_row.
 TYPES pernr TYPE pernr_d.
@@ -33,6 +34,12 @@ TYPES pernr TYPE pernr_d.
 INCLUDE TYPE zcl_hr_bonus_factor=>ty_absence.
 TYPES meldung TYPE c LENGTH 120.
 TYPES END OF ty_abs_row.
+
+TYPES: BEGIN OF ty_event_row.
+TYPES pernr TYPE pernr_d.
+INCLUDE TYPE zcl_hr_bonus_factor=>ty_event.
+TYPES meldung TYPE c LENGTH 120.
+TYPES END OF ty_event_row.
 
 TYPES:
   BEGIN OF ty_label,
@@ -53,6 +60,9 @@ START-OF-SELECTION.
     lt_awart TYPE zcl_hr_bonus_factor=>ty_t_awart,
     lt_months TYPE zcl_hr_bonus_factor=>ty_t_month,
     lt_days TYPE zcl_hr_bonus_factor=>ty_t_day,
+    lt_events TYPE zcl_hr_bonus_factor=>ty_t_events,
+    lt_out_events TYPE STANDARD TABLE OF ty_event_row,
+    ls_out_event TYPE ty_event_row,
     lt_absences TYPE zcl_hr_bonus_factor=>ty_t_absence,
     lt_out_abs TYPE STANDARD TABLE OF ty_abs_row,
     ls_out_abs TYPE ty_abs_row,
@@ -86,7 +96,7 @@ START-OF-SELECTION.
   ENDIF.
 
   LOOP AT lt_pernr INTO DATA(ls_pernr).
-    CLEAR: lt_months, lt_days, lt_absences, lv_message,
+    CLEAR: lt_months, lt_days, lt_absences, lt_events, ls_out_event, lv_message,
            ls_out_mon, ls_out_day, ls_out_abs.
     zcl_hr_bonus_factor=>get_factors(
       EXPORTING
@@ -99,6 +109,7 @@ START-OF-SELECTION.
         et_months         = lt_months
         et_days           = lt_days
         et_absences       = lt_absences
+        et_events         = lt_events
       EXCEPTIONS
         invalid_input     = 1
         infotype_error    = 2
@@ -130,9 +141,23 @@ START-OF-SELECTION.
       ls_out_abs-pernr = ls_pernr-pernr.
       ls_out_abs-meldung = lv_message.
       APPEND ls_out_abs TO lt_out_abs.
+      ls_out_event-pernr = ls_pernr-pernr.
+      ls_out_event-meldung = lv_message.
+      APPEND ls_out_event TO lt_out_events.
       CONTINUE.
     ENDIF.
 
+    LOOP AT lt_events INTO DATA(ls_event).
+      ls_out_event = CORRESPONDING #( ls_event ).
+      ls_out_event-pernr = ls_pernr-pernr.
+      APPEND ls_out_event TO lt_out_events.
+    ENDLOOP.
+    IF lt_events IS INITIAL.
+      CLEAR ls_out_event.
+      ls_out_event-pernr = ls_pernr-pernr.
+      ls_out_event-meldung = 'Kein Ein- oder Austritt im Eingabezeitraum'.
+      APPEND ls_out_event TO lt_out_events.
+    ENDIF.
     LOOP AT lt_absences INTO DATA(ls_absence).
       ls_out_abs = CORRESPONDING #( ls_absence ).
       ls_out_abs-pernr = ls_pernr-pernr.
@@ -173,10 +198,14 @@ START-OF-SELECTION.
         cl_salv_table=>factory(
           IMPORTING r_salv_table = lo_alv
           CHANGING t_table = lt_out_day ).
-      ELSE.
+      ELSEIF p_abs = abap_true.
         cl_salv_table=>factory(
           IMPORTING r_salv_table = lo_alv
           CHANGING t_table = lt_out_abs ).
+      ELSE.
+        cl_salv_table=>factory(
+          IMPORTING r_salv_table = lo_alv
+          CHANGING t_table = lt_out_events ).
       ENDIF.
       lo_alv->get_functions( )->set_all( abap_true ).
       lo_alv->get_columns( )->set_optimize( abap_true ).
@@ -214,6 +243,9 @@ START-OF-SELECTION.
         ( name = 'BEWERTET_VON' short = 'Erster Tag' medium = 'Erster Kuerzungstag' long = 'Erster beruecksichtigter Arbeitstag' )
         ( name = 'BEWERTET_BIS' short = 'Letz. Tag' medium = 'Letzter Kuerzungstag' long = 'Letzter beruecksichtigter Arbeitstag' )
         ( name = 'TAGE' short = 'Tage/Abw.' medium = 'Arbeitstage je Abw.' long = 'Tage je Abwesenheit, nicht summieren' )
+        ( name = 'EREIGNIS' short = 'E/A' medium = 'Ein-/Austritt' long = 'E = Eintritt, A = Austritt' )
+        ( name = 'BEZEICHNUNG' short = 'Ereignis' medium = 'Ereignis' long = 'Eintritt oder Austritt' )
+        ( name = 'STATUSDATUM' short = 'Status ab' medium = 'IT0000-Status ab' long = 'Erster Tag des neuen IT0000-Status' )
         ( name = 'MELDUNG' short = 'Hinweis' medium = 'Hinweis / Fehler' long = 'Hinweis / Fehler fuer diese Person' ) ).
 
       LOOP AT lt_labels INTO DATA(ls_label).
@@ -229,6 +261,12 @@ START-OF-SELECTION.
       IF p_abs = abap_true.
         lo_alv->get_columns( )->get_column( 'OBJPS' )->set_technical( abap_true ).
         lo_alv->get_columns( )->get_column( 'SEQNR' )->set_technical( abap_true ).
+      ENDIF.
+      IF p_event = abap_true.
+        DATA(lo_event_date) = lo_alv->get_columns( )->get_column( 'DATUM' ).
+        lo_event_date->set_short_text( 'E/A-Datum' ).
+        lo_event_date->set_medium_text( 'Ein-/Austrittsdatum' ).
+        lo_event_date->set_long_text( 'Eintritt / letzter Beschaeftigungstag' ).
       ENDIF.
       lo_alv->display( ).
     CATCH cx_salv_msg cx_salv_not_found INTO DATA(lx_alv).
